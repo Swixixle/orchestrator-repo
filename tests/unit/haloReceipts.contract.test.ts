@@ -37,6 +37,7 @@ describe("HALO-RECEIPTS integration contract smoke test", () => {
         console.log("  ↩  halo-receipts not installed – smoke test skipped.");
         return;
       }
+      // Broken entrypoint or any other error: fail loudly.
       throw err;
     }
 
@@ -60,6 +61,7 @@ describe("HALO-RECEIPTS integration contract smoke test", () => {
       ) {
         return; // skip
       }
+      // Broken entrypoint: fail loudly.
       throw err;
     }
 
@@ -78,6 +80,7 @@ describe("HALO-RECEIPTS integration contract smoke test", () => {
       ) {
         return; // skip
       }
+      // Broken entrypoint: fail loudly.
       throw err;
     }
 
