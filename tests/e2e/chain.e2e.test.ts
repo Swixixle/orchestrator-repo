@@ -92,6 +92,13 @@ describe.skipIf(!RUN_E2E)("E2E – full pipeline with real LLM (RUN_E2E=1 requir
     expect(haloReceipt).not.toBeNull();
   });
 
+  it("provenance contains a non-empty provenance_hash string", () => {
+    const provenance = adapterResult.provenance as Record<string, unknown>;
+
+    expect(typeof provenance.provenance_hash).toBe("string");
+    expect((provenance.provenance_hash as string).length).toBeGreaterThan(0);
+  });
+
   // ── 2. Receipt verification ───────────────────────────────────────────────
 
   it("receipt verifies using halo-receipts verification", async () => {
