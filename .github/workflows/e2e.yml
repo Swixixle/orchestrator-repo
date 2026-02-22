@@ -35,11 +35,33 @@ jobs:
           node-version: "22"
           cache: "npm"
 
-      - name: Install dependencies (including optional halo-receipts)
-        run: npm ci --include=optional
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install halo-receipts (E2E optional dependency)
+        run: npm install --no-save github:Swixixle/HALO-RECEIPTS#f58fcace72640689ecc5d0110feafbb08a3424d9
         env:
           # Required if halo-receipts is in a private GitHub repository
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: Build halo-receipts package entry point
+        run: |
+          cd node_modules/halo-receipts
+          npm install
+          # Build only the package entry (index.ts → dist/index.js).
+          # The full halo-receipts build targets a Replit app and will fail; the entry build succeeds first.
+          node_modules/.bin/tsx -e "
+            import { build } from 'esbuild';
+            await build({
+              entryPoints: ['index.ts'],
+              platform: 'node',
+              bundle: true,
+              format: 'esm',
+              outfile: 'dist/index.js',
+              external: ['crypto'],
+            });
+            console.log('halo-receipts dist/index.js built successfully');
+          "
 
       - name: Run E2E tests
         run: npm run test:e2e

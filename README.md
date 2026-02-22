@@ -90,15 +90,20 @@ RUN_E2E=1 OPENAI_API_KEY=sk-... npm run test:e2e
 | `RECEIPT_KEY_ID`    | ⚠️ If required | Key identifier for halo-receipts (if the package requires it). |
 | `RUN_E2E`           | ✅ Yes   | Must be `1` to enable the E2E suite.                               |
 
-> **Note:** E2E tests require the `halo-receipts` package to be installed.
-> Because it is an optional dependency (listed under `optionalDependencies`),
-> it is not installed by default.  Install it before running E2E:
+> **Note:** E2E tests require the `halo-receipts` package to be installed and built.
+> It is **not** a listed dependency and must be installed manually before running E2E:
 >
 > ```sh
-> npm install github:Swixixle/HALO-RECEIPTS#main
-> ```
+> # 1. Install the package
+> npm install --no-save github:Swixixle/HALO-RECEIPTS#f58fcace72640689ecc5d0110feafbb08a3424d9
 >
-> If the repository is private, a GitHub token with read access is required.
+> # 2. Build the package entry point (dist/index.js)
+> cd node_modules/halo-receipts && npm install && node_modules/.bin/tsx -e "
+>   import { build } from 'esbuild';
+>   await build({ entryPoints: ['index.ts'], platform: 'node', bundle: true,
+>     format: 'esm', outfile: 'dist/index.js', external: ['crypto'] });
+> " && cd ../..
+> ```
 
 #### Optional environment variables (E2E)
 
@@ -134,10 +139,10 @@ governed by a strict contract defined in
 | **Package pin** | `github:Swixixle/HALO-RECEIPTS#main` |
 
 The contract:
-- Imports from three known sub-paths (`server/llm/invokeLLMWithHalo.js`,
-  `server/llm/haloSignTranscript.js`, `server/audit-canon.js`) — no root import.
-- Validates every required export on load; throws a single actionable error
-  listing which exports were found vs. missing.
+- Imports `HALO_RECEIPTS_CONTRACT` from the package root entry point (no deep-path imports).
+- Validates `contractVersion` is a non-empty string and matches the pinned version.
+- Validates every required export is a function: `invokeLLMWithHalo`, `haloSignTranscript`, `verifyTranscriptReceipt`.
+- Throws a single actionable error listing which exports were found vs. missing.
 - Wraps `invokeLLMWithHalo` to capture the signed transcript (needed for
   verification).
 - Implements `verifyTranscriptReceipt` using HALO-RECEIPTS canonicalisation
