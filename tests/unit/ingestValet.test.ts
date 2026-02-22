@@ -204,7 +204,7 @@ describe("ingestValet bridge helpers", () => {
     delete process.env.VALET_RECEIPT_HMAC_KEY;
 
     try {
-      await expect(runIngestValet(["node", "ingestValet.ts", fixtureDir])).rejects.toThrow(
+      await expect(runIngestValet(["node", "ingestValet.ts", fixtureDir], { quiet: true })).rejects.toThrow(
         "VALET_RECEIPT_HMAC_KEY is required"
       );
     } finally {
@@ -251,7 +251,7 @@ describe("ingestValet bridge helpers", () => {
     delete process.env.RECEIPT_SIGNING_KEY;
 
     try {
-      await expect(runIngestValet(["node", "ingestValet.ts", fixtureDir])).rejects.toThrow(
+      await expect(runIngestValet(["node", "ingestValet.ts", fixtureDir], { quiet: true })).rejects.toThrow(
         "RECEIPT_SIGNING_KEY"
       );
     } finally {
@@ -295,7 +295,7 @@ describe("ingestValet bridge helpers", () => {
     process.env.VALET_RECEIPT_HMAC_KEY = hmacKey;
 
     try {
-      const ok = await runIngestValet(["node", "ingestValet.ts", fixtureDir]);
+      const ok = await runIngestValet(["node", "ingestValet.ts", fixtureDir], { quiet: true });
       expect(ok).toBe(false);
 
       const reportPath = join(fixtureDir, "halo_checkpoint", "protocol_report.json");

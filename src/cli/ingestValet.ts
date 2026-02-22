@@ -94,6 +94,10 @@ interface IngestArgs {
   inputDir: string;
 }
 
+interface RunIngestOptions {
+  quiet?: boolean;
+}
+
 interface HmacVerifyResult {
   ok: boolean;
   strategy: HmacStrategy | "none";
@@ -340,7 +344,7 @@ export function verifyCheckpointOffline(input: {
   return ok ? { ok: true } : { ok: false, reason: "ed25519 signature verification failed" };
 }
 
-export async function runIngestValet(argv: string[]): Promise<boolean> {
+export async function runIngestValet(argv: string[], options?: RunIngestOptions): Promise<boolean> {
   const { inputDir } = parseIngestArgs(argv);
   ensureDirectory(inputDir);
 
@@ -376,6 +380,7 @@ export async function runIngestValet(argv: string[]): Promise<boolean> {
       matchedHmacStrategy: "none",
       masterLeakScan: { ok: true, findings: [] },
       evidenceLeakScan: { ok: true, findings: [] },
+      quiet: options?.quiet,
     });
   }
 
@@ -524,6 +529,7 @@ export async function runIngestValet(argv: string[]): Promise<boolean> {
     masterLeakScan,
     evidenceLeakScan,
     submission,
+    quiet: options?.quiet,
   });
 }
 
@@ -535,6 +541,7 @@ function finalizeRun(input: {
   masterLeakScan: { ok: boolean; findings: Array<{ location: string; pattern: string }> };
   evidenceLeakScan: { ok: boolean; findings: Array<{ location: string; pattern: string }> };
   submission?: SubmissionResult;
+  quiet?: boolean;
 }): boolean {
   const overallPass = input.checks.every((check) => check.passed);
 
@@ -566,14 +573,16 @@ function finalizeRun(input: {
   writeFileSync(join(input.outputDir, "protocol_report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
   const byName = new Map(input.checks.map((check) => [check.name, check]));
-  printCheck(byName.get("valet_hmac_verification"), "Valet HMAC verified");
-  printCheck(byName.get("content_hash_computed"), "Canonical content_hash computed");
-  printCheck(byName.get("ed25519_checkpoint_generated"), "Ed25519 checkpoint generated");
-  printCheck(byName.get("offline_verify"), "Offline verify OK");
+  if (!input.quiet) {
+    printCheck(byName.get("valet_hmac_verification"), "Valet HMAC verified");
+    printCheck(byName.get("content_hash_computed"), "Canonical content_hash computed");
+    printCheck(byName.get("ed25519_checkpoint_generated"), "Ed25519 checkpoint generated");
+    printCheck(byName.get("offline_verify"), "Offline verify OK");
 
-  console.log(`[INFO] matched_hmac_strategy=${input.matchedHmacStrategy}`);
-  console.log(`[INFO] output=${input.outputDir}`);
-  console.log(`[INFO] protocol_report=${join(input.outputDir, "protocol_report.json")}`);
+    console.log(`[INFO] matched_hmac_strategy=${input.matchedHmacStrategy}`);
+    console.log(`[INFO] output=${input.outputDir}`);
+    console.log(`[INFO] protocol_report=${join(input.outputDir, "protocol_report.json")}`);
+  }
 
   return overallPass;
 }
