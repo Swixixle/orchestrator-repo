@@ -25,6 +25,6 @@
     "vitest": "^4.0.18"
   },
   "optionalDependencies": {
-    "halo-receipts": "github:Swixixle/HALO-RECEIPTS#main"
+    "halo-receipts": "github:Swixixle/HALO-RECEIPTS#f58fcace72640689ecc5d0110feafbb08a3424d9"
   }
 }
