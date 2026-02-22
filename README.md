@@ -236,6 +236,53 @@ Verification policy:
 
 ---
 
+## HALO Console Server
+
+The repo also includes a unified API + optional static UI server:
+
+```sh
+npm run console:dev
+```
+
+Production mode:
+
+```sh
+npm run console:prod
+```
+
+Available scripts:
+
+- `console:dev` — run server directly from TypeScript
+- `console:build` — compile with `tsc`
+- `console:start` — run compiled server from `dist/`
+- `console:prod` — build then start
+
+Default runtime values:
+
+- `CONSOLE_HOST=0.0.0.0`
+- `CONSOLE_PORT=8090`
+- `CONSOLE_UI_DIST_DIR=ui/dist`
+
+Optional database health probe:
+
+- set `DATABASE_URL` to enable `/api/health` PostgreSQL connectivity checks
+
+API endpoints:
+
+- `GET /api/health`
+- `POST /api/run`
+- `POST /api/verify`
+- `POST /api/leak-scan`
+
+Provider requirements for `/api/run`:
+
+- `provider=openai` requires `OPENAI_API_KEY`
+- `provider=anthropic` requires `ANTHROPIC_API_KEY`
+
+If `CONSOLE_UI_DIST_DIR` exists, non-API routes fall back to `index.html` for SPA serving.
+
+---
+
 ## Truth Claims
 
 ### What we can prove
