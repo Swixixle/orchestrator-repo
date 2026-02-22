@@ -30,6 +30,22 @@ describe("ingestValet bridge helpers", () => {
     expect(result.stdout).toContain("Usage: ingestValet");
     expect(result.stdout).toContain("--quiet");
   });
+
+  it("prints usage and exits with 0 when CLI is run with --help", () => {
+    // Build first to ensure dist/cli/ingestValet.js is up to date
+    const build = spawnSync("npm", ["run", "console:build"], { cwd: process.cwd(), shell: true });
+    expect(build.status).toBe(0);
+
+    const result = spawnSync("node", ["dist/cli/ingestValet.js", "--help"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(0); // usage exits with 0
+    expect(result.stdout).toContain("Usage: ingestValet");
+    expect(result.stdout).toContain("--quiet");
+    expect(result.stdout).toContain("<valet-dist-dir>");
+    expect(result.stderr).toBe("");
+  });
   it("parses ingest args with --quiet flag", () => {
     const parsed = parseIngestArgs(["node", "ingestValet.ts", "--quiet", "dist/sample"]);
     expect(parsed.quiet).toBe(true);
