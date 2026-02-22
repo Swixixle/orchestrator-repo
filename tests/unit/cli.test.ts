@@ -215,7 +215,7 @@ describe("demo CLI argument parsing", () => {
   function parseDemoArgs(argv: string[]): {
     prompt?: string;
     inputFile?: string;
-    provider: "openai" | "anthropic";
+    provider: "openai" | "anthropic" | "gemini";
     model: string;
     endpoint: "/chat/completions" | "/responses";
     maxTokens?: number;
@@ -224,7 +224,7 @@ describe("demo CLI argument parsing", () => {
     const args = argv.slice(2);
     let prompt: string | undefined;
     let inputFile: string | undefined;
-    let provider: "openai" | "anthropic" = "openai";
+    let provider: "openai" | "anthropic" | "gemini" = "openai";
     let model = "gpt-4.1-mini";
     let endpoint: "/chat/completions" | "/responses" = "/chat/completions";
     let maxTokens: number | undefined;
@@ -238,10 +238,10 @@ describe("demo CLI argument parsing", () => {
         inputFile = args[++i];
       } else if (arg === "--provider" && args[i + 1]) {
         const providerValue = args[++i];
-        if (providerValue !== "openai" && providerValue !== "anthropic") {
-          throw new Error(`--provider must be \"openai\" or \"anthropic\", got: ${providerValue}`);
+        if (providerValue !== "openai" && providerValue !== "anthropic" && providerValue !== "gemini") {
+          throw new Error(`--provider must be \"openai\", \"anthropic\", or \"gemini\", got: ${providerValue}`);
         }
-        provider = providerValue;
+        provider = providerValue as "openai" | "anthropic" | "gemini";
       } else if (arg === "--model" && args[i + 1]) {
         model = args[++i];
       } else if (arg === "--endpoint" && args[i + 1]) {
@@ -286,6 +286,21 @@ describe("demo CLI argument parsing", () => {
     ]);
     expect(opts.provider).toBe("anthropic");
     expect(opts.model).toBe("claude-3-5-sonnet-20241022");
+  });
+
+  it("parses --provider gemini flag", () => {
+    const opts = parseDemoArgs([
+      "node",
+      "run.ts",
+      "--prompt",
+      "test",
+      "--provider",
+      "gemini",
+      "--model",
+      "gemini-1.5-flash",
+    ]);
+    expect(opts.provider).toBe("gemini");
+    expect(opts.model).toBe("gemini-1.5-flash");
   });
 
   it("parses --max-tokens flag", () => {

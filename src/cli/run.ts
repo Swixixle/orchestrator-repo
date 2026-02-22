@@ -30,11 +30,12 @@ import {
   signHaloTranscriptAdapter,
 } from "../adapters/haloReceiptsAdapter.js";
 import { invokeAnthropicLLM } from "../adapters/anthropicAdapter.js";
+import { invokeGeminiLLM } from "../adapters/geminiAdapter.js";
 import { tagResponseToLedger, validateLedgerSemantics } from "../adapters/eliAdapter.js";
 import { scanForLeaks } from "../utils/leakScan.js";
 import type { Artifact } from "../types/artifact.js";
 
-type DemoProvider = "openai" | "anthropic";
+type DemoProvider = "openai" | "anthropic" | "gemini";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -65,8 +66,8 @@ function parseArgs(argv: string[]): {
       inputFile = args[++i];
     } else if (arg === "--provider" && args[i + 1]) {
       const p = args[++i] as string;
-      if (p !== "openai" && p !== "anthropic") {
-        throw new Error(`--provider must be "openai" or "anthropic", got: ${p}`);
+      if (p !== "openai" && p !== "anthropic" && p !== "gemini") {
+        throw new Error(`--provider must be "openai", "anthropic", or "gemini", got: ${p}`);
       }
       provider = p;
     } else if (arg === "--model" && args[i + 1]) {
@@ -198,6 +199,8 @@ export async function runDemo(argv: string[]): Promise<void> {
   const adapterResult =
     opts.provider === "anthropic"
       ? await invokeAnthropicWithHalo(opts.model, messages, opts.maxTokens)
+      : opts.provider === "gemini"
+        ? await invokeGeminiWithHalo(opts.model, messages, opts.maxTokens)
       : await invokeLLMWithHaloAdapter({
           endpoint: opts.endpoint,
           model: opts.model,
@@ -218,9 +221,19 @@ export async function runDemo(argv: string[]): Promise<void> {
     [process.env.OPENAI_API_KEY, process.env.ANTHROPIC_API_KEY].filter(
       (v): v is string => typeof v === "string"
     )
+      .concat(
+        [process.env.GEMINI_API_KEY].filter((v): v is string => typeof v === "string")
+      )
   );
 
   const provenance = adapterResult.provenance as Record<string, unknown>;
+
+  const llmEndpoint =
+    opts.provider === "anthropic"
+      ? "/v1/messages"
+      : opts.provider === "gemini"
+        ? `/v1beta/models/${opts.model}:generateContent`
+        : opts.endpoint;
 
   const artifact: Artifact = {
     meta: {
@@ -230,12 +243,11 @@ export async function runDemo(argv: string[]): Promise<void> {
     },
     llm: {
       provider: opts.provider,
-      endpoint: opts.provider === "anthropic" ? "/v1/messages" : opts.endpoint,
+      endpoint: llmEndpoint,
       model: opts.model,
-      // Only proven request params – no Authorization headers
       requestParams: {
         model: opts.model,
-        endpoint: opts.provider === "anthropic" ? "/v1/messages" : opts.endpoint,
+        endpoint: llmEndpoint,
         provider: opts.provider,
         maxTokens: opts.maxTokens,
       },
@@ -278,6 +290,64 @@ export async function runDemo(argv: string[]): Promise<void> {
   }
 }
 
+async function invokeGeminiWithHalo(
+  model: string,
+  messages: Array<{ role: string; content: string }>,
+  maxTokens?: number
+): Promise<{
+  outputText: string;
+  transcript: unknown;
+  haloReceipt: unknown;
+  provenance: Record<string, unknown>;
+}> {
+  const geminiResult = await invokeGeminiLLM({ model, messages, maxTokens });
+
+  const transcript = {
+    provider: "gemini",
+    endpoint: "/v1beta/models/*:generateContent",
+    model,
+    messages,
+    output_text: geminiResult.outputText,
+  };
+
+  const haloReceipt = await signHaloTranscriptAdapter(transcript);
+  return {
+    outputText: geminiResult.outputText,
+    transcript,
+    haloReceipt,
+    provenance: {
+      provider: "gemini",
+      ...(geminiResult.raw ?? {}),
+    },
+  };
+}
+
+function ensureProviderKey(provider: DemoProvider): void {
+  if (provider === "openai" && !process.env.OPENAI_API_KEY) {
+    throw new Error(
+      "OPENAI_API_KEY is required when provider=openai.\n" +
+        "  Export it in your shell and re-run:\n" +
+        "    OPENAI_API_KEY=sk-... npm run demo -- --provider openai --prompt '...'"
+    );
+  }
+
+  if (provider === "anthropic" && !process.env.ANTHROPIC_API_KEY) {
+    throw new Error(
+      "ANTHROPIC_API_KEY is required when provider=anthropic.\n" +
+        "  Export it in your shell and re-run:\n" +
+        "    ANTHROPIC_API_KEY=... npm run demo -- --provider anthropic --prompt '...'"
+    );
+  }
+
+  if (provider === "gemini" && !process.env.GEMINI_API_KEY) {
+    throw new Error(
+      "GEMINI_API_KEY is required when provider=gemini.\n" +
+        "  Export it in your shell and re-run:\n" +
+        "    GEMINI_API_KEY=... npm run demo -- --provider gemini --prompt '...'"
+    );
+  }
+}
+
 async function invokeAnthropicWithHalo(
   model: string,
   messages: Array<{ role: string; content: string }>,
@@ -308,24 +378,6 @@ async function invokeAnthropicWithHalo(
       ...(anthropicResult.raw ?? {}),
     },
   };
-}
-
-function ensureProviderKey(provider: DemoProvider): void {
-  if (provider === "openai" && !process.env.OPENAI_API_KEY) {
-    throw new Error(
-      "OPENAI_API_KEY is required when provider=openai.\n" +
-        "  Export it in your shell and re-run:\n" +
-        "    OPENAI_API_KEY=sk-... npm run demo -- --provider openai --prompt '...'"
-    );
-  }
-
-  if (provider === "anthropic" && !process.env.ANTHROPIC_API_KEY) {
-    throw new Error(
-      "ANTHROPIC_API_KEY is required when provider=anthropic.\n" +
-        "  Export it in your shell and re-run:\n" +
-        "    ANTHROPIC_API_KEY=... npm run demo -- --provider anthropic --prompt '...'"
-    );
-  }
 }
 
 // ── Entry ─────────────────────────────────────────────────────────────────────

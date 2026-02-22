@@ -53,6 +53,7 @@ export function renderMasterConsoleHtml(): string {
               <select id="run-provider">
                 <option value="anthropic">anthropic</option>
                 <option value="openai">openai</option>
+                <option value="gemini">gemini</option>
               </select>
             </div>
             <div>
@@ -137,12 +138,21 @@ export function renderMasterConsoleHtml(): string {
     }
 
     const runOutput = document.getElementById('run-output');
+    const runProvider = document.getElementById('run-provider');
+    const runModel = document.getElementById('run-model');
+
+    runProvider.addEventListener('change', () => {
+      if (runProvider.value === 'anthropic') runModel.value = 'claude-3-5-sonnet-20241022';
+      else if (runProvider.value === 'gemini') runModel.value = 'gemini-1.5-flash';
+      else runModel.value = 'gpt-4.1-mini';
+    });
+
     document.getElementById('run-submit').addEventListener('click', async () => {
       runOutput.textContent = 'Running...';
       try {
         const payload = {
-          provider: document.getElementById('run-provider').value,
-          model: document.getElementById('run-model').value,
+          provider: runProvider.value,
+          model: runModel.value,
           prompt: document.getElementById('run-prompt').value,
         };
         const result = await call('/api/run', { method: 'POST', body: JSON.stringify(payload) });

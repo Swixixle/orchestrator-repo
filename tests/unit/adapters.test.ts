@@ -21,10 +21,12 @@ describe("adapter isolation – unit suite must not import adapters", () => {
   //                                   src/adapters intentionally to validate
   //                                   the contract loader (no live LLM calls).
   //   anthropicAdapter.test.ts      – adapter-local pure mapping/parsing tests.
+  //   geminiAdapter.test.ts         – adapter-local pure mapping/parsing tests.
   const ISOLATION_EXCLUDED = new Set([
     "adapters.test.ts",
     "haloReceipts.contract.test.ts",
     "anthropicAdapter.test.ts",
+    "geminiAdapter.test.ts",
   ]);
 
   const unitFiles = readdirSync(unitDir)

@@ -15,7 +15,8 @@ import { runVerify } from "../cli/verify.js";
 import { scanForLeaks } from "../utils/leakScan.js";
 import { invokeLLMWithHaloAdapter } from "../adapters/haloReceiptsAdapter.js";
 import { invokeAnthropicLLM } from "../adapters/anthropicAdapter.js";
-import { renderMasterConsoleHtml } from "./masterConsoleHtml.js";
+import { invokeGeminiLLM } from "../adapters/geminiAdapter.js";
+import { renderMasterConsoleHtml } from "./masterConsoleHtml";
 
 const require = createRequire(import.meta.url);
 const express = require("express") as typeof import("express");
@@ -45,7 +46,9 @@ app.get("/api/health", async (_req: Request, res: Response) => {
   const keys = {
     receipt_signing_key: hasSecret("RECEIPT_SIGNING_KEY"),
     receipt_verify_key: hasSecret("RECEIPT_VERIFY_KEY"),
+    openai_api_key: hasSecret("OPENAI_API_KEY"),
     anthropic_api_key: hasSecret("ANTHROPIC_API_KEY"),
+    gemini_api_key: hasSecret("GEMINI_API_KEY"),
   };
 
   res.json({
@@ -58,7 +61,7 @@ app.get("/api/health", async (_req: Request, res: Response) => {
       db.status !== "fail" &&
       keys.receipt_signing_key &&
       keys.receipt_verify_key &&
-      keys.anthropic_api_key,
+      (keys.openai_api_key || keys.anthropic_api_key || keys.gemini_api_key),
   });
 });
 
@@ -86,11 +89,19 @@ app.post("/api/run", async (req: Request, res: Response) => {
         return adapterResult.outputText;
       }
 
-      const anthropicResult = await invokeAnthropicLLM({
+      if (provider === "anthropic") {
+        const anthropicResult = await invokeAnthropicLLM({
+          model,
+          messages: [{ role: "user", content: promptText }],
+        });
+        return anthropicResult.outputText;
+      }
+
+      const geminiResult = await invokeGeminiLLM({
         model,
         messages: [{ role: "user", content: promptText }],
       });
-      return anthropicResult.outputText;
+      return geminiResult.outputText;
     };
 
     const pipelineResult = await runPipeline(prompt, llmInvoker);
@@ -104,7 +115,7 @@ app.post("/api/run", async (req: Request, res: Response) => {
       ],
       [process.env.OPENAI_API_KEY, process.env.ANTHROPIC_API_KEY].filter(
         (value): value is string => typeof value === "string" && value.length > 0
-      )
+      ).concat([process.env.GEMINI_API_KEY].filter((value): value is string => typeof value === "string" && value.length > 0))
     );
 
     mkdirSync(outDir, { recursive: true });
@@ -252,6 +263,10 @@ app.post("/api/runs/:id/tamper", async (req: Request, res: Response) => {
 });
 
 app.get("/", (_req: Request, res: Response) => {
+  res.redirect(302, "/console");
+});
+
+app.get("/console", (_req: Request, res: Response) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.send(renderMasterConsoleHtml());
 });
@@ -378,23 +393,34 @@ function apiHardeningMiddleware(req: Request, res: Response, next: () => void): 
   next();
 }
 
-function normalizeProvider(value: unknown): "openai" | "anthropic" {
+function normalizeProvider(value: unknown): "openai" | "anthropic" | "gemini" {
   const lowered = String(value ?? "openai").toLowerCase();
-  return lowered === "anthropic" ? "anthropic" : "openai";
+  if (lowered === "anthropic") return "anthropic";
+  if (lowered === "gemini") return "gemini";
+  return "openai";
 }
 
-function defaultModel(provider: "openai" | "anthropic"): string {
-  return provider === "anthropic"
-    ? process.env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-20241022"
-    : process.env.E2E_MODEL ?? "gpt-4.1-mini";
+function defaultModel(provider: "openai" | "anthropic" | "gemini"): string {
+  if (provider === "anthropic") {
+    return process.env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-20241022";
+  }
+
+  if (provider === "gemini") {
+    return process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
+  }
+
+  return process.env.E2E_MODEL ?? "gpt-4.1-mini";
 }
 
-function ensureProviderSecrets(provider: "openai" | "anthropic"): void {
+function ensureProviderSecrets(provider: "openai" | "anthropic" | "gemini"): void {
   if (provider === "openai" && !process.env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is required when provider=openai");
   }
   if (provider === "anthropic" && !process.env.ANTHROPIC_API_KEY) {
     throw new Error("ANTHROPIC_API_KEY is required when provider=anthropic");
+  }
+  if (provider === "gemini" && !process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY is required when provider=gemini");
   }
 }
 

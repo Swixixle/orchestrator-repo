@@ -4,6 +4,7 @@ This repo currently implements production adapters for:
 
 - OpenAI-compatible endpoints
 - Anthropic Messages API (Claude)
+- Gemini GenerateContent API
 
 ## Current implementation status
 
@@ -11,12 +12,13 @@ This repo currently implements production adapters for:
   - Entry points: `src/cli/run.ts`, `src/adapters/haloReceiptsAdapter.ts`
 - Anthropic provider adapter: implemented
   - Entry points: `src/cli/run.ts`, `src/adapters/anthropicAdapter.ts`
-- Gemini provider adapter: **not implemented yet**
+- Gemini provider adapter: implemented
+  - Entry points: `src/cli/run.ts`, `src/adapters/geminiAdapter.ts`
 
 Codebase check:
 
 - Anthropic adapter found: `src/adapters/anthropicAdapter.ts`
-- No Gemini adapter found under `src/`
+- Gemini adapter found: `src/adapters/geminiAdapter.ts`
 
 ## Environment variables
 
@@ -27,7 +29,10 @@ From `.env.example`:
 - `ANTHROPIC_BASE_URL` — optional API base URL override (default: `https://api.anthropic.com`)
 - `ANTHROPIC_MAX_TOKENS` — default max tokens for Anthropic requests
 - `ANTHROPIC_TEMPERATURE` — optional temperature for Anthropic requests
-- `GEMINI_API_KEY` — reserved for future Gemini adapter
+- `GEMINI_API_KEY` — required for Gemini demo path
+- `GEMINI_BASE_URL` — optional API base URL override (default: `https://generativelanguage.googleapis.com`)
+- `GEMINI_MAX_TOKENS` — default max tokens for Gemini requests
+- `GEMINI_TEMPERATURE` — optional temperature for Gemini requests
 - `E2E_MODEL` — model used in live demo/E2E (OpenAI path)
 - `E2E_ENDPOINT` — endpoint path (`/chat/completions` or `/responses`)
 - `LLM_PROVIDER` — default provider selection (`openai` or `anthropic`)
@@ -82,24 +87,25 @@ The existing `test:e2e` suite is OpenAI-oriented. Anthropic live E2E is not yet 
 
 ## Gemini (not implemented yet)
 
-No Gemini-specific adapter exists in `src/adapters/`.
-
-### Current status
-
-- `GEMINI_API_KEY` can be set in env, but no Gemini request path is wired in code.
-- To implement, add a provider adapter under `src/adapters/` and route it from `src/cli/run.ts`.
-
-### Placeholder commands (will fail until adapter is added)
+### Demo
 
 ```sh
-GEMINI_API_KEY=... npm run demo -- --prompt "..."
-RUN_E2E=1 GEMINI_API_KEY=... npm run test:e2e
+GEMINI_API_KEY=... \
+npm run demo -- --provider gemini --model gemini-1.5-flash --prompt "Explain what causes ocean tides."
+```
+
+Input-file form:
+
+```sh
+GEMINI_API_KEY=... \
+npm run demo -- --provider gemini --model gemini-1.5-flash --input-file prompts/example.txt
 ```
 
 ## Common failure modes
 
 - Missing key (`OPENAI_API_KEY`) → live demo/E2E fails immediately
 - Missing key (`ANTHROPIC_API_KEY`) → Anthropic demo fails immediately
+- Missing key (`GEMINI_API_KEY`) → Gemini demo fails immediately
 - Wrong model name (`E2E_MODEL`) → provider 400/404 model-not-found
 - Wrong endpoint (`E2E_ENDPOINT`) → provider 404/400
 - Auth failures (401/403) → invalid key, org/project mismatch, or restricted model
