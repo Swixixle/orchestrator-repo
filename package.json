@@ -24,6 +24,7 @@
     "console:build": "tsc --project tsconfig.build.json",
     "console:start": "node dist/server/haloConsoleServer.js",
     "console:prod": "npm run console:build && npm run console:start",
+    "console:help": "npm run console:build && node dist/cli/ingestValet.js --help",
     "replit:start": "npm run console:dev"
   },
   "repository": {

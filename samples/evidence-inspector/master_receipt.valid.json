@@ -3,11 +3,11 @@
   "receipt_id": "sample-receipt-001",
   "content_hash": "966fd6fefa275ae327cc8c6e8634200ba1def67e6a63261c9262119e5a970a0f",
   "signature_scheme": "ed25519",
-  "signature": "X8ufx1PR9MzNbdFPt1l19rA9gOCwCOJS74VDxaFSCqJEUsWxemtfQlzvm5rKVtKdFKMJqNUREm6QGF02jlkqCQ==",
+  "signature": "i0nId+dp0gDazQ2st3oM2dJbvMpzk7lx3MCDIdMiBJ8ra1GR0BjiripVhuUsu74F0rJi7QfMMMX7g3rW3FnKCA==",
   "signed_payload": "HALO_MASTER_RECEIPT_V1|{\"content_hash\":\"966fd6fefa275ae327cc8c6e8634200ba1def67e6a63261c9262119e5a970a0f\",\"receipt_id\":\"sample-receipt-001\",\"receipt_version\":\"halo.master.v1\",\"signature_scheme\":\"ed25519\"}",
   "metadata": {
     "created_at": "2026-02-22T00:00:00.000Z",
-    "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAX8Pj3zWsMtuK5Tly5sUsmAIa2gu8Pxa/KqrlHH3V3zU=\n-----END PUBLIC KEY-----\n",
+    "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAyf5S+xi/g00lwRtpjmRC/Yfd4qvuArv151mI4P+8QJA=\n-----END PUBLIC KEY-----\n",
     "purpose": "sample-artifact"
   },
   "verification": {

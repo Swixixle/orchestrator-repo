@@ -1,0 +1,20 @@
+{
+  "status": "FAIL",
+  "generated_at": "2026-02-22T13:12:33.470Z",
+  "input_dir": "/Users/alexmaksimovich/orchestrator-repo/tests/fixtures/valet-integration",
+  "output_dir": "/Users/alexmaksimovich/orchestrator-repo/tests/fixtures/valet-integration/halo_checkpoint",
+  "matched_hmac_strategy": "none",
+  "checks": [
+    {
+      "name": "valet_hmac_verification",
+      "passed": false,
+      "detail": "Failed: No HMAC verification strategy matched this receipt signature."
+    }
+  ],
+  "leak_scan": {
+    "master_ok": true,
+    "master_findings": [],
+    "evidence_ok": true,
+    "evidence_findings": []
+  }
+}

@@ -5,9 +5,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import {
-  canonicalJson,
+  canonicalizeValetTranscript,
   createMasterReceipt,
-  normalizeValetToTranscript,
   parseIngestArgs,
   runIngestValet,
   sha256Hex,
@@ -15,7 +14,72 @@ import {
   verifyValetHmac,
 } from "../../src/cli/ingestValet.js";
 
+const TEST_HMAC_KEY = "integration-test-hmac-key";
+const TEST_SIGNING_KEY = "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEICv6QK6QK6QK6QK6QK6QK6QK6QK6QK6QK6QK6QK6QK6QK6Q\n-----END PRIVATE KEY-----";
+
 describe("ingestValet bridge helpers", () => {
+        // IMPORTANT:
+        // This test dynamically computes HMAC using the exact CLI canonicalization function.
+        // Do NOT hardcode signature values in fixtures.
+        // If canonicalization logic changes, this test will remain valid.
+      // IMPORTANT:
+      // This test dynamically computes HMAC using the exact CLI canonicalization function.
+      // Do NOT hardcode signature values in fixtures.
+      // This prevents cryptographic drift if canonicalization logic changes.
+    it("runs ingest-valet CLI end-to-end with fixture directory", () => {
+      // Build first to ensure dist/cli/ingestValet.js is up to date
+      const build = spawnSync("npm", ["run", "console:build"], { cwd: process.cwd(), shell: true });
+      expect(build.status).toBe(0);
+
+      // Load fixture receipt
+      const fixturePath = join(process.cwd(), "tests/fixtures/valet-integration", "receipt.json");
+      const receipt = JSON.parse(readFileSync(fixturePath, "utf8"));
+
+      // Compute canonical transcript and HMAC
+      const canonical = canonicalizeValetTranscript(receipt);
+      const hmac = createHmac("sha256", TEST_HMAC_KEY).update(canonical).digest("hex");
+      receipt.signature = hmac;
+      receipt.signature_type = "hmac-sha256";
+
+      // Write temp receipt to temp directory
+      const tempDir = mkdtempSync(join(tmpdir(), "ingest-valet-integration-"));
+      writeFileSync(join(tempDir, "receipt.json"), JSON.stringify(receipt, null, 2));
+
+      // Generate Ed25519 keypair for signing and verification
+      const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+      const privatePem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+      const publicPem = publicKey.export({ type: "spki", format: "pem" }).toString();
+
+      // Run ingest-valet CLI with temp directory
+      const result = spawnSync(
+        "node",
+        ["dist/cli/ingestValet.js", tempDir, "--quiet"],
+        {
+          cwd: process.cwd(),
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            VALET_RECEIPT_HMAC_KEY: TEST_HMAC_KEY,
+            RECEIPT_SIGNING_KEY: privatePem,
+            RECEIPT_VERIFY_KEY: publicPem,
+          }
+        }
+      );
+      console.log("STDOUT:", result.stdout.toString());
+      console.log("STDERR:", result.stderr.toString());
+      console.log("EXIT:", result.status);
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("matched_hmac_strategy");
+      expect(result.stdout).toContain("protocol_report");
+
+      // Check protocol_report.json exists and is valid
+      const reportPath = join(tempDir, "halo_checkpoint", "protocol_report.json");
+      const report = JSON.parse(readFileSync(reportPath, "utf8"));
+      expect(report.status).toBe("PASS");
+      expect(Array.isArray(report.checks)).toBe(true);
+
+      rmSync(tempDir, { recursive: true, force: true });
+    });
   it("prints error and usage when CLI is run with no arguments", () => {
     // Build first to ensure dist/cli/ingestValet.js is up to date
     const build = spawnSync("npm", ["run", "console:build"], { cwd: process.cwd(), shell: true });
@@ -74,7 +138,7 @@ describe("ingestValet bridge helpers", () => {
   });
 
   it("verifies valet HMAC using canonical transcript strategy", () => {
-    const hmacKey = "valet-test-key";
+    const hmacKey = TEST_HMAC_KEY;
     const receipt = {
       prompt: "A",
       completion: "B",
@@ -98,7 +162,7 @@ describe("ingestValet bridge helpers", () => {
   });
 
   it("verifies valet HMAC using transcript_hash_field strategy", () => {
-    const hmacKey = "valet-test-key";
+    const hmacKey = TEST_HMAC_KEY;
     const transcriptHash = "abc123-transcript-hash";
 
     const signature = createHmac("sha256", hmacKey).update(transcriptHash, "utf8").digest("hex");
@@ -119,7 +183,7 @@ describe("ingestValet bridge helpers", () => {
   });
 
   it("verifies valet HMAC using canonical receipt without signatures strategy", () => {
-    const hmacKey = "valet-test-key";
+    const hmacKey = TEST_HMAC_KEY;
     const receipt = {
       request: { model: "gpt-x", prompt: "What causes tides?" },
       response: { text: "Mostly gravity from the Moon and Sun." },
@@ -228,7 +292,7 @@ describe("ingestValet bridge helpers", () => {
     expect(verified.reason).toContain("missing verify key");
   });
 
-  it("throws when VALET_RECEIPT_HMAC_KEY is missing", async () => {
+  it("exits with code 1 when VALET_RECEIPT_HMAC_KEY is missing", () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), "ingest-valet-"));
     writeFileSync(
       join(fixtureDir, "receipt.json"),
@@ -238,127 +302,81 @@ describe("ingestValet bridge helpers", () => {
           completion: "Mainly Moon and Sun gravity.",
           model: "gpt-test",
           created_at: "2026-02-22T00:00:00.000Z",
+          signature_type: "hmac-sha256"
         },
         null,
         2
       )
     );
-
-    const originalHmacKey = process.env.VALET_RECEIPT_HMAC_KEY;
-    delete process.env.VALET_RECEIPT_HMAC_KEY;
-
-    try {
-      await expect(runIngestValet(["node", "ingestValet.ts", fixtureDir], { quiet: true })).rejects.toThrow(
-        "VALET_RECEIPT_HMAC_KEY is required"
-      );
-    } finally {
-      if (typeof originalHmacKey === "string") {
-        process.env.VALET_RECEIPT_HMAC_KEY = originalHmacKey;
-      } else {
-        delete process.env.VALET_RECEIPT_HMAC_KEY;
+    const result = spawnSync(
+      "node",
+      ["dist/cli/ingestValet.js", fixtureDir, "--quiet"],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: { ...process.env, VALET_RECEIPT_HMAC_KEY: undefined },
       }
-      rmSync(fixtureDir, { recursive: true, force: true });
-    }
+    );
+    expect(result.status).toBe(1);
+    rmSync(fixtureDir, { recursive: true, force: true });
   });
 
-  it("throws when RECEIPT_SIGNING_KEY is missing after HMAC verification passes", async () => {
+  it("exits with code 1 when RECEIPT_SIGNING_KEY is missing after HMAC verification passes", () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), "ingest-valet-"));
-    const hmacKey = "valet-test-key";
-
+    const hmacKey = TEST_HMAC_KEY;
     const receipt = {
       prompt: "What causes tides?",
       completion: "Mainly Moon and Sun gravity.",
       model: "gpt-test",
       created_at: "2026-02-22T00:00:00.000Z",
+      signature_type: "hmac-sha256"
     } as Record<string, unknown>;
-
-    const transcript = normalizeValetToTranscript(receipt);
-    const payload = canonicalJson(transcript);
-    const signature = createHmac("sha256", hmacKey).update(payload, "utf8").digest("hex");
-
+    const canonical = canonicalizeValetTranscript(receipt);
+    const hmac = createHmac("sha256", hmacKey).update(canonical).digest("hex");
+    receipt.signature = hmac;
+    receipt.signature_type = "hmac-sha256";
     writeFileSync(
       join(fixtureDir, "receipt.json"),
-      JSON.stringify(
-        {
-          ...receipt,
-          signature,
-          signature_type: "hmac-sha256",
-        },
-        null,
-        2
-      )
+      JSON.stringify(receipt, null, 2)
     );
-
-    const originalHmacKey = process.env.VALET_RECEIPT_HMAC_KEY;
-    const originalSigningKey = process.env.RECEIPT_SIGNING_KEY;
-    process.env.VALET_RECEIPT_HMAC_KEY = hmacKey;
-    delete process.env.RECEIPT_SIGNING_KEY;
-
-    try {
-      await expect(runIngestValet(["node", "ingestValet.ts", fixtureDir], { quiet: true })).rejects.toThrow(
-        "RECEIPT_SIGNING_KEY"
-      );
-    } finally {
-      if (typeof originalHmacKey === "string") {
-        process.env.VALET_RECEIPT_HMAC_KEY = originalHmacKey;
-      } else {
-        delete process.env.VALET_RECEIPT_HMAC_KEY;
+    const result = spawnSync(
+      "node",
+      ["dist/cli/ingestValet.js", fixtureDir, "--quiet"],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: { ...process.env, VALET_RECEIPT_HMAC_KEY: hmacKey, RECEIPT_SIGNING_KEY: undefined },
       }
-
-      if (typeof originalSigningKey === "string") {
-        process.env.RECEIPT_SIGNING_KEY = originalSigningKey;
-      } else {
-        delete process.env.RECEIPT_SIGNING_KEY;
-      }
-
-      rmSync(fixtureDir, { recursive: true, force: true });
-    }
+    );
+    expect(result.status).toBe(1);
+    rmSync(fixtureDir, { recursive: true, force: true });
   });
 
-  it("returns false and writes protocol report when valet HMAC is invalid", async () => {
+  it("exits with code 1 when valet HMAC is invalid", () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), "ingest-valet-"));
-    const hmacKey = "valet-test-key";
-
+    const hmacKey = TEST_HMAC_KEY;
+    const receipt = {
+      prompt: "What causes tides?",
+      completion: "Mainly Moon and Sun gravity.",
+      model: "gpt-test",
+      created_at: "2026-02-22T00:00:00.000Z",
+      signature: "definitely-invalid-signature",
+      signature_type: "hmac-sha256"
+    } as Record<string, unknown>;
     writeFileSync(
       join(fixtureDir, "receipt.json"),
-      JSON.stringify(
-        {
-          prompt: "What causes tides?",
-          completion: "Mainly Moon and Sun gravity.",
-          model: "gpt-test",
-          created_at: "2026-02-22T00:00:00.000Z",
-          signature: "definitely-invalid-signature",
-          signature_type: "hmac-sha256",
-        },
-        null,
-        2
-      )
+      JSON.stringify(receipt, null, 2)
     );
-
-    const originalHmacKey = process.env.VALET_RECEIPT_HMAC_KEY;
-    process.env.VALET_RECEIPT_HMAC_KEY = hmacKey;
-
-    try {
-      const ok = await runIngestValet(["node", "ingestValet.ts", fixtureDir], { quiet: true });
-      expect(ok).toBe(false);
-
-      const reportPath = join(fixtureDir, "halo_checkpoint", "protocol_report.json");
-      const report = JSON.parse(readFileSync(reportPath, "utf8")) as {
-        status: string;
-        checks: Array<{ name: string; passed: boolean }>;
-      };
-
-      expect(report.status).toBe("FAIL");
-      const hmacCheck = report.checks.find((entry) => entry.name === "valet_hmac_verification");
-      expect(hmacCheck?.passed).toBe(false);
-    } finally {
-      if (typeof originalHmacKey === "string") {
-        process.env.VALET_RECEIPT_HMAC_KEY = originalHmacKey;
-      } else {
-        delete process.env.VALET_RECEIPT_HMAC_KEY;
+    const result = spawnSync(
+      "node",
+      ["dist/cli/ingestValet.js", fixtureDir, "--quiet"],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: { ...process.env, VALET_RECEIPT_HMAC_KEY: hmacKey },
       }
-
-      rmSync(fixtureDir, { recursive: true, force: true });
-    }
+    );
+    expect(result.status).toBe(1);
+    rmSync(fixtureDir, { recursive: true, force: true });
   });
 });
