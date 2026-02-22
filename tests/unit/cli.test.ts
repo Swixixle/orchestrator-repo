@@ -215,15 +215,19 @@ describe("demo CLI argument parsing", () => {
   function parseDemoArgs(argv: string[]): {
     prompt?: string;
     inputFile?: string;
+    provider: "openai" | "anthropic";
     model: string;
     endpoint: "/chat/completions" | "/responses";
+    maxTokens?: number;
     outDir: string;
   } {
     const args = argv.slice(2);
     let prompt: string | undefined;
     let inputFile: string | undefined;
+    let provider: "openai" | "anthropic" = "openai";
     let model = "gpt-4.1-mini";
     let endpoint: "/chat/completions" | "/responses" = "/chat/completions";
+    let maxTokens: number | undefined;
     let outDir = "out";
 
     for (let i = 0; i < args.length; i++) {
@@ -232,6 +236,12 @@ describe("demo CLI argument parsing", () => {
         prompt = args[++i];
       } else if (arg === "--input-file" && args[i + 1]) {
         inputFile = args[++i];
+      } else if (arg === "--provider" && args[i + 1]) {
+        const providerValue = args[++i];
+        if (providerValue !== "openai" && providerValue !== "anthropic") {
+          throw new Error(`--provider must be \"openai\" or \"anthropic\", got: ${providerValue}`);
+        }
+        provider = providerValue;
       } else if (arg === "--model" && args[i + 1]) {
         model = args[++i];
       } else if (arg === "--endpoint" && args[i + 1]) {
@@ -240,20 +250,54 @@ describe("demo CLI argument parsing", () => {
           throw new Error(`--endpoint must be "/chat/completions" or "/responses", got: ${ep}`);
         }
         endpoint = ep;
+      } else if (arg === "--max-tokens" && args[i + 1]) {
+        const parsed = Number(args[++i]);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+          throw new Error(`--max-tokens must be a positive number, got: ${String(parsed)}`);
+        }
+        maxTokens = parsed;
       } else if (arg === "--out-dir" && args[i + 1]) {
         outDir = args[++i];
       }
     }
 
-    return { prompt, inputFile, model, endpoint, outDir };
+    return { prompt, inputFile, provider, model, endpoint, maxTokens, outDir };
   }
 
   it("parses --prompt flag", () => {
     const opts = parseDemoArgs(["node", "run.ts", "--prompt", "Hello world"]);
     expect(opts.prompt).toBe("Hello world");
+    expect(opts.provider).toBe("openai");
     expect(opts.model).toBe("gpt-4.1-mini");
     expect(opts.endpoint).toBe("/chat/completions");
     expect(opts.outDir).toBe("out");
+  });
+
+  it("parses --provider anthropic flag", () => {
+    const opts = parseDemoArgs([
+      "node",
+      "run.ts",
+      "--prompt",
+      "test",
+      "--provider",
+      "anthropic",
+      "--model",
+      "claude-3-5-sonnet-20241022",
+    ]);
+    expect(opts.provider).toBe("anthropic");
+    expect(opts.model).toBe("claude-3-5-sonnet-20241022");
+  });
+
+  it("parses --max-tokens flag", () => {
+    const opts = parseDemoArgs([
+      "node",
+      "run.ts",
+      "--prompt",
+      "test",
+      "--max-tokens",
+      "256",
+    ]);
+    expect(opts.maxTokens).toBe(256);
   });
 
   it("parses --model flag", () => {
@@ -281,5 +325,11 @@ describe("demo CLI argument parsing", () => {
     expect(() =>
       parseDemoArgs(["node", "run.ts", "--prompt", "test", "--endpoint", "/invalid"])
     ).toThrow("--endpoint must be");
+  });
+
+  it("throws on invalid --provider value", () => {
+    expect(() =>
+      parseDemoArgs(["node", "run.ts", "--prompt", "test", "--provider", "bad"])
+    ).toThrow("--provider must be");
   });
 });

@@ -1,29 +1,36 @@
 # Provider Configuration
 
-This repo currently implements a production adapter for **OpenAI-compatible** endpoints.
+This repo currently implements production adapters for:
+
+- OpenAI-compatible endpoints
+- Anthropic Messages API (Claude)
 
 ## Current implementation status
 
 - OpenAI-compatible provider path: implemented
   - Entry points: `src/cli/run.ts`, `src/adapters/haloReceiptsAdapter.ts`
-- Anthropic provider adapter: **not implemented yet**
+- Anthropic provider adapter: implemented
+  - Entry points: `src/cli/run.ts`, `src/adapters/anthropicAdapter.ts`
 - Gemini provider adapter: **not implemented yet**
 
 Codebase check:
 
-- No `anthropic` provider adapter found under `src/`
-- No `gemini` provider adapter found under `src/`
+- Anthropic adapter found: `src/adapters/anthropicAdapter.ts`
+- No Gemini adapter found under `src/`
 
 ## Environment variables
 
 From `.env.example`:
 
 - `OPENAI_API_KEY` — required for live OpenAI demo and E2E
-- `ANTHROPIC_API_KEY` — reserved for future Anthropic adapter
+- `ANTHROPIC_API_KEY` — required for Anthropic demo path
+- `ANTHROPIC_BASE_URL` — optional API base URL override (default: `https://api.anthropic.com`)
+- `ANTHROPIC_MAX_TOKENS` — default max tokens for Anthropic requests
+- `ANTHROPIC_TEMPERATURE` — optional temperature for Anthropic requests
 - `GEMINI_API_KEY` — reserved for future Gemini adapter
 - `E2E_MODEL` — model used in live demo/E2E (OpenAI path)
 - `E2E_ENDPOINT` — endpoint path (`/chat/completions` or `/responses`)
-- `LLM_PROVIDER` — optional routing hint (currently informational)
+- `LLM_PROVIDER` — default provider selection (`openai` or `anthropic`)
 - `LLM_BASE_URL` — optional base URL override for OpenAI-compatible endpoints
 
 ## OpenAI (implemented)
@@ -47,21 +54,31 @@ E2E_ENDPOINT=/chat/completions \
 npm run test:e2e
 ```
 
-## Anthropic (not implemented yet)
+## Anthropic (implemented)
 
-No Anthropic-specific adapter exists in `src/adapters/`.
-
-### Current status
-
-- `ANTHROPIC_API_KEY` can be set in env, but no Anthropic request path is wired in code.
-- To implement, add a provider adapter under `src/adapters/` and route it from `src/cli/run.ts`.
-
-### Placeholder commands (will fail until adapter is added)
+### Demo
 
 ```sh
-ANTHROPIC_API_KEY=... npm run demo -- --prompt "..."
-RUN_E2E=1 ANTHROPIC_API_KEY=... npm run test:e2e
+ANTHROPIC_API_KEY=... \
+npm run demo -- --provider anthropic --model claude-3-5-sonnet-20241022 --prompt "Explain what causes ocean tides."
 ```
+
+Input-file form:
+
+```sh
+ANTHROPIC_API_KEY=... \
+npm run demo -- --provider anthropic --model claude-3-5-sonnet-20241022 --input-file prompts/example.txt
+```
+
+Verification:
+
+```sh
+npm run verify -- --artifact out/artifact.json
+```
+
+### E2E status
+
+The existing `test:e2e` suite is OpenAI-oriented. Anthropic live E2E is not yet added as a separate suite.
 
 ## Gemini (not implemented yet)
 
@@ -82,6 +99,7 @@ RUN_E2E=1 GEMINI_API_KEY=... npm run test:e2e
 ## Common failure modes
 
 - Missing key (`OPENAI_API_KEY`) → live demo/E2E fails immediately
+- Missing key (`ANTHROPIC_API_KEY`) → Anthropic demo fails immediately
 - Wrong model name (`E2E_MODEL`) → provider 400/404 model-not-found
 - Wrong endpoint (`E2E_ENDPOINT`) → provider 404/400
 - Auth failures (401/403) → invalid key, org/project mismatch, or restricted model

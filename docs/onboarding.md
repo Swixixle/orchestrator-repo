@@ -69,6 +69,14 @@ npm run verify -- --artifact out/artifact.json
 
 5. In the UI, upload `out/artifact.json`.
 
+Anthropic alternative:
+
+```sh
+export ANTHROPIC_API_KEY=...
+npm run demo -- --provider anthropic --model claude-3-5-sonnet-20241022 --prompt "Explain what causes ocean tides."
+npm run verify -- --artifact out/artifact.json
+```
+
 ## D) Valet integration path (bridge)
 
 1. Ensure Valet bundle exists at `dist/<slug>/` with `receipt.json`.

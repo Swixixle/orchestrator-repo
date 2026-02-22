@@ -93,3 +93,9 @@ export async function verifyHaloReceiptAdapter(
   const contract = await loadHaloReceiptsContract();
   return contract.verifyTranscriptReceipt(transcript, haloReceipt);
 }
+
+/** Sign a prepared transcript object using halo-receipts signing primitives. */
+export async function signHaloTranscriptAdapter(transcript: unknown): Promise<unknown> {
+  const contract = await loadHaloReceiptsContract();
+  return contract.signTranscript(transcript);
+}

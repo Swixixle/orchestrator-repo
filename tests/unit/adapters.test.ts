@@ -20,7 +20,12 @@ describe("adapter isolation – unit suite must not import adapters", () => {
   //   haloReceipts.contract.test.ts – integration smoke test; imports from
   //                                   src/adapters intentionally to validate
   //                                   the contract loader (no live LLM calls).
-  const ISOLATION_EXCLUDED = new Set(["adapters.test.ts", "haloReceipts.contract.test.ts"]);
+  //   anthropicAdapter.test.ts      – adapter-local pure mapping/parsing tests.
+  const ISOLATION_EXCLUDED = new Set([
+    "adapters.test.ts",
+    "haloReceipts.contract.test.ts",
+    "anthropicAdapter.test.ts",
+  ]);
 
   const unitFiles = readdirSync(unitDir)
     .filter((f) => f.endsWith(".test.ts") && !ISOLATION_EXCLUDED.has(f))

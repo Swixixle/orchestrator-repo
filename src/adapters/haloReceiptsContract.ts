@@ -63,6 +63,9 @@ export interface HaloReceiptsContract {
     haloReceipt: unknown
   ) => Promise<{ ok: boolean; errors?: string[] }>;
 
+  /** Sign an already prepared transcript object and return a HALO receipt. */
+  signTranscript: (transcript: unknown) => Promise<HaloTranscriptReceipt>;
+
   /** Resolved contract version string. */
   contractVersion: string;
 }
@@ -257,7 +260,16 @@ export async function loadHaloReceiptsContract(): Promise<HaloReceiptsContract> 
     return verifyTranscriptReceiptFn(transcript, haloReceipt as HaloTranscriptReceipt);
   };
 
-  cached = { invokeLLMWithHalo, verifyTranscriptReceipt, contractVersion: foundContractVersion };
+  const signTranscript: HaloReceiptsContract["signTranscript"] = async (transcript) => {
+    return haloSignTranscriptFn(transcript);
+  };
+
+  cached = {
+    invokeLLMWithHalo,
+    verifyTranscriptReceipt,
+    signTranscript,
+    contractVersion: foundContractVersion,
+  };
   return cached;
 }
 

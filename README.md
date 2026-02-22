@@ -124,6 +124,12 @@ npm run demo -- --prompt "..." --model gpt-4o --endpoint /chat/completions --out
 npm run demo -- --input-file path/to/prompt.txt
 ```
 
+Anthropic demo path:
+
+```sh
+ANTHROPIC_API_KEY=... npm run demo -- --provider anthropic --model claude-3-5-sonnet-20241022 --prompt "Explain what causes ocean tides."
+```
+
 ---
 
 ## Verification

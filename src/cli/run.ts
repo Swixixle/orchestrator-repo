@@ -25,26 +25,36 @@ import { resolve } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
-import { invokeLLMWithHaloAdapter } from "../adapters/haloReceiptsAdapter.js";
+import {
+  invokeLLMWithHaloAdapter,
+  signHaloTranscriptAdapter,
+} from "../adapters/haloReceiptsAdapter.js";
+import { invokeAnthropicLLM } from "../adapters/anthropicAdapter.js";
 import { tagResponseToLedger, validateLedgerSemantics } from "../adapters/eliAdapter.js";
 import { scanForLeaks } from "../utils/leakScan.js";
 import type { Artifact } from "../types/artifact.js";
+
+type DemoProvider = "openai" | "anthropic";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function parseArgs(argv: string[]): {
   prompt?: string;
   inputFile?: string;
+  provider: DemoProvider;
   model: string;
   endpoint: "/chat/completions" | "/responses";
+  maxTokens?: number;
   outDir: string;
 } {
   const args = argv.slice(2);
   let prompt: string | undefined;
   let inputFile: string | undefined;
+  let provider = (process.env.LLM_PROVIDER as DemoProvider | undefined) ?? "openai";
   let model = process.env.E2E_MODEL ?? "gpt-4.1-mini";
   let endpoint: "/chat/completions" | "/responses" =
     (process.env.E2E_ENDPOINT as "/chat/completions" | "/responses") ?? "/chat/completions";
+  let maxTokens: number | undefined;
   let outDir = "out";
 
   for (let i = 0; i < args.length; i++) {
@@ -53,6 +63,12 @@ function parseArgs(argv: string[]): {
       prompt = args[++i];
     } else if (arg === "--input-file" && args[i + 1]) {
       inputFile = args[++i];
+    } else if (arg === "--provider" && args[i + 1]) {
+      const p = args[++i] as string;
+      if (p !== "openai" && p !== "anthropic") {
+        throw new Error(`--provider must be "openai" or "anthropic", got: ${p}`);
+      }
+      provider = p;
     } else if (arg === "--model" && args[i + 1]) {
       model = args[++i];
     } else if (arg === "--endpoint" && args[i + 1]) {
@@ -61,12 +77,18 @@ function parseArgs(argv: string[]): {
         throw new Error(`--endpoint must be "/chat/completions" or "/responses", got: ${ep}`);
       }
       endpoint = ep;
+    } else if (arg === "--max-tokens" && args[i + 1]) {
+      const parsed = Number(args[++i]);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new Error(`--max-tokens must be a positive number, got: ${String(parsed)}`);
+      }
+      maxTokens = parsed;
     } else if (arg === "--out-dir" && args[i + 1]) {
       outDir = args[++i];
     }
   }
 
-  return { prompt, inputFile, model, endpoint, outDir };
+  return { prompt, inputFile, provider, model, endpoint, maxTokens, outDir };
 }
 
 function resolvePrompt(opts: { prompt?: string; inputFile?: string }): string {
@@ -164,23 +186,23 @@ export async function runDemo(argv: string[]): Promise<void> {
   const opts = parseArgs(argv);
   const promptText = resolvePrompt(opts);
 
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error(
-      "OPENAI_API_KEY is required.\n" +
-        "  Export it in your shell and re-run:\n" +
-        "    OPENAI_API_KEY=sk-... npm run demo -- --prompt '...'"
-    );
-  }
+  ensureProviderKey(opts.provider);
 
-  console.log(`[demo] Invoking LLM via halo-receipts...`);
+  console.log(`[demo] Invoking LLM via provider adapter...`);
+  console.log(`[demo]   provider : ${opts.provider}`);
   console.log(`[demo]   endpoint : ${opts.endpoint}`);
   console.log(`[demo]   model    : ${opts.model}`);
 
-  const adapterResult = await invokeLLMWithHaloAdapter({
-    endpoint: opts.endpoint,
-    model: opts.model,
-    promptOrMessages: promptText,
-  });
+  const messages = [{ role: "user", content: promptText }];
+
+  const adapterResult =
+    opts.provider === "anthropic"
+      ? await invokeAnthropicWithHalo(opts.model, messages, opts.maxTokens)
+      : await invokeLLMWithHaloAdapter({
+          endpoint: opts.endpoint,
+          model: opts.model,
+          promptOrMessages: promptText,
+        });
 
   console.log("[demo] LLM responded. Running ELI tagging...");
 
@@ -193,7 +215,9 @@ export async function runDemo(argv: string[]): Promise<void> {
       { field: "haloReceipt", value: adapterResult.haloReceipt },
       { field: "provenance", value: adapterResult.provenance },
     ],
-    [process.env.OPENAI_API_KEY]
+    [process.env.OPENAI_API_KEY, process.env.ANTHROPIC_API_KEY].filter(
+      (v): v is string => typeof v === "string"
+    )
   );
 
   const provenance = adapterResult.provenance as Record<string, unknown>;
@@ -205,11 +229,16 @@ export async function runDemo(argv: string[]): Promise<void> {
       nodeVersion: process.version,
     },
     llm: {
-      provider: "openai",
-      endpoint: opts.endpoint,
+      provider: opts.provider,
+      endpoint: opts.provider === "anthropic" ? "/v1/messages" : opts.endpoint,
       model: opts.model,
       // Only proven request params – no Authorization headers
-      requestParams: { model: opts.model, endpoint: opts.endpoint },
+      requestParams: {
+        model: opts.model,
+        endpoint: opts.provider === "anthropic" ? "/v1/messages" : opts.endpoint,
+        provider: opts.provider,
+        maxTokens: opts.maxTokens,
+      },
     },
     transcript: adapterResult.transcript,
     haloReceipt: adapterResult.haloReceipt,
@@ -246,6 +275,56 @@ export async function runDemo(argv: string[]): Promise<void> {
     console.error("\n[demo] ⚠️  CREDENTIAL LEAK SCAN FAILED – review artifact before sharing.");
     console.error(leakScan.findings.map((f) => `  - ${f.location}: ${f.pattern}`).join("\n"));
     process.exit(1);
+  }
+}
+
+async function invokeAnthropicWithHalo(
+  model: string,
+  messages: Array<{ role: string; content: string }>,
+  maxTokens?: number
+): Promise<{
+  outputText: string;
+  transcript: unknown;
+  haloReceipt: unknown;
+  provenance: Record<string, unknown>;
+}> {
+  const anthropicResult = await invokeAnthropicLLM({ model, messages, maxTokens });
+
+  const transcript = {
+    provider: "anthropic",
+    endpoint: "/v1/messages",
+    model,
+    messages,
+    output_text: anthropicResult.outputText,
+  };
+
+  const haloReceipt = await signHaloTranscriptAdapter(transcript);
+  return {
+    outputText: anthropicResult.outputText,
+    transcript,
+    haloReceipt,
+    provenance: {
+      provider: "anthropic",
+      ...(anthropicResult.raw ?? {}),
+    },
+  };
+}
+
+function ensureProviderKey(provider: DemoProvider): void {
+  if (provider === "openai" && !process.env.OPENAI_API_KEY) {
+    throw new Error(
+      "OPENAI_API_KEY is required when provider=openai.\n" +
+        "  Export it in your shell and re-run:\n" +
+        "    OPENAI_API_KEY=sk-... npm run demo -- --provider openai --prompt '...'"
+    );
+  }
+
+  if (provider === "anthropic" && !process.env.ANTHROPIC_API_KEY) {
+    throw new Error(
+      "ANTHROPIC_API_KEY is required when provider=anthropic.\n" +
+        "  Export it in your shell and re-run:\n" +
+        "    ANTHROPIC_API_KEY=... npm run demo -- --provider anthropic --prompt '...'"
+    );
   }
 }
 
