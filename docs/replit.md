@@ -18,7 +18,7 @@ This repository can run as a single URL app (UI + API) using the console server.
 The included `.replit` uses:
 
 ```sh
-npm run console:dev
+npm run replit:start
 ```
 
 ## Deployment command (Reserved VM)
@@ -33,4 +33,6 @@ npm run console:prod
 
 - The server binds to `0.0.0.0`.
 - The server respects `PORT` (falls back to `CONSOLE_PORT`, then `8080`).
+- Master Console UI: `/`
+- Evidence Inspector UI: `/inspector`
 - Health endpoint: `GET /api/health`.

@@ -23,7 +23,8 @@
     "console:dev": "tsx src/server/haloConsoleServer.ts",
     "console:build": "tsc --project tsconfig.build.json",
     "console:start": "node dist/server/haloConsoleServer.js",
-    "console:prod": "npm run console:build && npm run console:start"
+    "console:prod": "npm run console:build && npm run console:start",
+    "replit:start": "npm run console:dev"
   },
   "repository": {
     "type": "git",
