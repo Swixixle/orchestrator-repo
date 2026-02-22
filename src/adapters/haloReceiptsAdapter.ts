@@ -1,58 +1,34 @@
 /**
- * HALO Receipts Adapter.
+ * HALO Receipts Adapter – delegates entirely to the halo-receipts package.
  *
- * This adapter is the E2E path for HALO receipt generation and verification.
- * It exposes a stable interface so the E2E test does not touch the toy
- * signer/verifier directly.
+ * No local crypto. All signing and verification is performed by halo-receipts.
+ * If the package is unavailable, functions throw with a clear message.
  *
- * When HALO-RECEIPTS is published as an npm package, replace the internal
- * crypto logic below with imports from that package:
+ * Install halo-receipts for E2E:
+ *   npm install github:Swixixle/HALO-RECEIPTS#main
  *
- *   import { invokeLLMWithHalo, haloSignTranscript, verifyHaloTranscript }
- *     from "halo-receipts";
- *
- * Until then, this adapter uses Node's built-in crypto module with the same
- * HMAC-SHA256 scheme so that behaviour is identical but the import path is
- * cleanly separated from the unit-test mocks.
+ * Environment variables (all required when RUN_E2E=1):
+ *   OPENAI_API_KEY        – provider credential (never included in receipt)
+ *   RECEIPT_SIGNING_KEY   – signing key for halo-receipts
+ *   RECEIPT_KEY_ID        – key identifier for halo-receipts (if required)
+ *   E2E_ENDPOINT          – "/chat/completions" (default) or "/responses"
+ *   E2E_MODEL             – model name (default: "gpt-4.1-mini")
  */
-import { createHmac, createHash, randomUUID, timingSafeEqual } from "node:crypto";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export interface HaloAdapterOptions {
-  /** Override the OpenAI model (default: E2E_MODEL env var or "gpt-4.1-mini") */
-  model?: string;
-  /** Override the API endpoint path (default: E2E_ENDPOINT env var or "/chat/completions") */
-  endpoint?: string;
-}
-
-export interface HaloReceipt {
-  id: string;
-  timestamp: string;
-  /** SHA-256 of the serialised request body (auth-header-free) */
-  requestHash: string;
-  /** SHA-256 of the raw upstream response text */
-  responseHash: string;
-  /** HMAC-SHA256 over id|timestamp|requestHash|responseHash */
-  signature: string;
-  /** The raw upstream response text that was signed */
-  response: string;
-}
-
-export interface HaloProvenance {
-  endpoint: string;
+export interface InvokeLLMWithHaloArgs {
+  endpoint: "/chat/completions" | "/responses";
   model: string;
-  /** Request payload as sent upstream – auth headers are intentionally absent */
-  requestBody: Record<string, unknown>;
-  timestamp: string;
-  requestHash: string;
-  responseHash: string;
+  promptOrMessages: string | Array<{ role: string; content: string }>;
 }
 
-export interface HaloAdapterResult {
+export interface InvokeLLMWithHaloResult {
   outputText: string;
-  provenance: HaloProvenance;
-  haloReceipt: HaloReceipt;
+  provenance: unknown;
+  haloReceipt: unknown;
+  /** The exact transcript object that was signed by halo-receipts */
+  transcript: unknown;
 }
 
 export interface HaloVerifyResult {
@@ -60,190 +36,101 @@ export interface HaloVerifyResult {
   errors?: string[];
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Error message ─────────────────────────────────────────────────────────────
 
-const BASE_URL = "https://api.openai.com/v1";
+const MISSING_PACKAGE_ERROR =
+  "halo-receipts is not installed. " +
+  "Install it for E2E with:\n" +
+  "  npm install github:Swixixle/HALO-RECEIPTS#main\n" +
+  "E2E tests require access to the halo-receipts dependency. " +
+  "See README for details.";
 
-function resolveSigningKey(): string {
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function isModuleNotFound(err: unknown): boolean {
   return (
-    process.env.RECEIPT_SIGNING_KEY ??
-    process.env.HALO_SIGNING_KEY ??
-    "test-signing-key-32-bytes-padded!"
+    err instanceof Error &&
+    "code" in err &&
+    ((err as NodeJS.ErrnoException).code === "ERR_MODULE_NOT_FOUND" ||
+      (err as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND")
   );
 }
 
-function buildPayload(
-  prompt: string,
-  model: string,
-  endpointPath: string
-): Record<string, unknown> {
-  if (endpointPath === "/chat/completions") {
-    return {
-      model,
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: 256,
-      temperature: 0,
-    };
-  }
-  if (endpointPath === "/responses") {
-    return {
-      model,
-      input: prompt,
-      max_tokens: 256,
-      temperature: 0,
-    };
-  }
-  throw new Error(
-    `Unknown E2E_ENDPOINT "${endpointPath}". ` +
-      'Supported values: "/chat/completions" or "/responses".'
-  );
+function buildMessages(
+  promptOrMessages: string | Array<{ role: string; content: string }>
+): Array<{ role: string; content: string }> {
+  return typeof promptOrMessages === "string"
+    ? [{ role: "user", content: promptOrMessages }]
+    : promptOrMessages;
 }
 
-function extractText(
-  data: unknown,
-  endpointPath: string
-): string {
-  if (endpointPath === "/chat/completions") {
-    const d = data as { choices: Array<{ message: { content: string } }> };
-    return d.choices[0].message.content;
-  }
-  if (endpointPath === "/responses") {
-    const d = data as { output: Array<{ content: Array<{ text: string }> }> };
-    return d.output[0].content[0].text;
-  }
-  throw new Error(`Cannot extract text for endpoint "${endpointPath}"`);
-}
-
-function signTranscript(
-  id: string,
-  timestamp: string,
-  requestHash: string,
-  responseHash: string,
-  key: string
-): string {
-  const payload = `${id}|${timestamp}|${requestHash}|${responseHash}`;
-  return createHmac("sha256", key).update(payload, "utf8").digest("hex");
-}
-
-// ── Public API ───────────────────────────────────────────────────────────────
+// ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Invoke an OpenAI-compatible LLM and produce a tamper-evident HALO receipt.
+ * Invoke an LLM via the real halo-receipts `invokeLLMWithHalo` function,
+ * which handles provenance tracking and HALO receipt signing.
  *
- * The signed transcript contains only the request body and response text –
- * Authorization headers are never included.
- *
- * Environment variables (all required when RUN_E2E=1):
- *   OPENAI_API_KEY        – provider credential (never included in receipt)
- *   RECEIPT_SIGNING_KEY   – HMAC signing key (falls back to HALO_SIGNING_KEY)
- *   E2E_ENDPOINT          – "/chat/completions" (default) or "/responses"
- *   E2E_MODEL             – model name (default: "gpt-4.1-mini")
+ * The `__endpoint` field is used to route the request inside halo-receipts
+ * and is stripped before the payload reaches the upstream provider.
  */
 export async function invokeLLMWithHaloAdapter(
-  prompt: string,
-  options: HaloAdapterOptions = {}
-): Promise<HaloAdapterResult> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "E2E requires OPENAI_API_KEY to be set. " +
-        "Set it in your environment before running with RUN_E2E=1."
-    );
+  args: InvokeLLMWithHaloArgs
+): Promise<InvokeLLMWithHaloResult> {
+  let invokeLLMWithHalo: (payload: Record<string, unknown>) => Promise<InvokeLLMWithHaloResult>;
+  try {
+    // Dynamic import so the package remains optional; throws at runtime if missing
+    ({ invokeLLMWithHalo } = await import("halo-receipts/server/llm/invokeLLMWithHalo.js"));
+    if (typeof invokeLLMWithHalo !== "function") {
+      throw new Error("invokeLLMWithHalo export not found in halo-receipts");
+    }
+  } catch (err) {
+    if (isModuleNotFound(err)) throw new Error(MISSING_PACKAGE_ERROR);
+    throw err;
   }
 
-  const endpointPath =
-    options.endpoint ?? process.env.E2E_ENDPOINT ?? "/chat/completions";
-  const model = options.model ?? process.env.E2E_MODEL ?? "gpt-4.1-mini";
+  const { endpoint, model, promptOrMessages } = args;
+  const messages = buildMessages(promptOrMessages);
 
-  const requestBody = buildPayload(prompt, model, endpointPath);
+  // Build the payload shape expected by the halo-receipts openai adapter.
+  // __endpoint is stripped by halo-receipts before reaching the upstream provider.
+  const payload: Record<string, unknown> =
+    endpoint === "/chat/completions"
+      ? { __endpoint: "/chat/completions", messages, model }
+      : { __endpoint: "/responses", input: messages, model };
 
-  const res = await fetch(`${BASE_URL}${endpointPath}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      // Authorization header is intentionally NOT stored in provenance/receipt
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`OpenAI API error ${res.status}: ${body}`);
-  }
-
-  const data = await res.json();
-  const outputText = extractText(data, endpointPath);
-
-  // Build provenance – auth headers are never included
-  const timestamp = new Date().toISOString();
-  const requestHash = createHash("sha256")
-    .update(JSON.stringify(requestBody), "utf8")
-    .digest("hex");
-  const responseHash = createHash("sha256")
-    .update(outputText, "utf8")
-    .digest("hex");
-
-  const provenance: HaloProvenance = {
-    endpoint: endpointPath,
-    model,
-    requestBody,
-    timestamp,
-    requestHash,
-    responseHash,
-  };
-
-  // Sign the transcript (no auth headers – requestBody is already auth-free)
-  const signingKey = resolveSigningKey();
-  const id = randomUUID();
-  const signature = signTranscript(id, timestamp, requestHash, responseHash, signingKey);
-
-  const haloReceipt: HaloReceipt = {
-    id,
-    timestamp,
-    requestHash,
-    responseHash,
-    signature,
-    response: outputText,
-  };
-
-  return { outputText, provenance, haloReceipt };
+  return invokeLLMWithHalo(payload);
 }
 
 /**
- * Verify a HALO receipt produced by invokeLLMWithHaloAdapter.
+ * Verify a HALO receipt using the real halo-receipts verification utilities.
  *
- * Returns { ok: true } when the receipt is untampered, or
+ * Returns { ok: true } when the receipt is valid, or
  * { ok: false, errors: [...] } describing what failed.
  */
-export function verifyHaloReceiptAdapter(receipt: HaloReceipt): HaloVerifyResult {
-  const errors: string[] = [];
-  const key = resolveSigningKey();
-
-  // 1. Re-derive and compare the response hash
-  const expectedResponseHash = createHash("sha256")
-    .update(receipt.response, "utf8")
-    .digest("hex");
-  if (expectedResponseHash !== receipt.responseHash) {
-    errors.push("responseHash mismatch – content may have been tampered");
+export async function verifyHaloReceiptAdapter(
+  transcript: unknown,
+  haloReceipt: unknown
+): Promise<HaloVerifyResult> {
+  let verifyFn: (transcript: unknown, receipt: unknown) => Promise<HaloVerifyResult>;
+  try {
+    // Dynamic import so the package remains optional; throws at runtime if missing
+    const m = await import("halo-receipts");
+    const candidate = m.verifyForensicPack ?? m.verifyReceipt;
+    if (candidate === undefined || candidate === null) {
+      throw new Error(
+        "halo-receipts does not export verifyForensicPack or verifyReceipt"
+      );
+    }
+    if (typeof candidate !== "function") {
+      throw new Error(
+        `halo-receipts exports verifyForensicPack/verifyReceipt but it is not a function (got ${typeof candidate})`
+      );
+    }
+    verifyFn = candidate;
+  } catch (err) {
+    if (isModuleNotFound(err)) throw new Error(MISSING_PACKAGE_ERROR);
+    throw err;
   }
 
-  // 2. Re-derive and compare the HMAC signature
-  const expectedSig = signTranscript(
-    receipt.id,
-    receipt.timestamp,
-    receipt.requestHash,
-    receipt.responseHash,
-    key
-  );
-  const sigBuf = Buffer.from(receipt.signature, "hex");
-  const expBuf = Buffer.from(expectedSig, "hex");
-  if (
-    sigBuf.length !== expBuf.length ||
-    !timingSafeEqual(sigBuf, expBuf)
-  ) {
-    errors.push("signature mismatch – receipt may have been forged");
-  }
-
-  return errors.length === 0 ? { ok: true } : { ok: false, errors };
+  return verifyFn(transcript, haloReceipt);
 }
