@@ -257,6 +257,10 @@ Available scripts:
 - `console:start` — run compiled server from `dist/`
 - `console:prod` — build then start
 
+CLI help:
+
+- `npm run console:help` — prints ingest-valet usage, options, and environment requirements
+
 Default runtime values:
 
 - `CONSOLE_HOST=0.0.0.0`
