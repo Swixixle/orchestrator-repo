@@ -1,19 +1,25 @@
 /**
- * HALO Receipts Adapter – delegates entirely to the halo-receipts package.
+ * HALO Receipts Adapter – delegates entirely to the halo-receipts package
+ * via the versioned integration contract (haloReceiptsContract.ts).
  *
- * No local crypto. All signing and verification is performed by halo-receipts.
- * If the package is unavailable, functions throw with a clear message.
+ * No local crypto. No guessed export names. No deep-path guessing.
+ * All signing and verification is performed by halo-receipts primitives
+ * loaded through the contract.
  *
  * Install halo-receipts for E2E:
  *   npm install github:Swixixle/HALO-RECEIPTS#main
  *
  * Environment variables (all required when RUN_E2E=1):
  *   OPENAI_API_KEY        – provider credential (never included in receipt)
- *   RECEIPT_SIGNING_KEY   – signing key for halo-receipts
+ *   RECEIPT_SIGNING_KEY   – Ed25519 private key for halo-receipts signing
+ *   RECEIPT_VERIFY_KEY    – Ed25519 public key for receipt verification
  *   RECEIPT_KEY_ID        – key identifier for halo-receipts (if required)
  *   E2E_ENDPOINT          – "/chat/completions" (default) or "/responses"
  *   E2E_MODEL             – model name (default: "gpt-4.1-mini")
+ *   HALO_RECEIPTS_CONTRACT_VERSION – (optional) enforce a specific contract version
  */
+
+import { loadHaloReceiptsContract } from "./haloReceiptsContract.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,25 +42,7 @@ export interface HaloVerifyResult {
   errors?: string[];
 }
 
-// ── Error message ─────────────────────────────────────────────────────────────
-
-const MISSING_PACKAGE_ERROR =
-  "halo-receipts is not installed. " +
-  "Install it for E2E with:\n" +
-  "  npm install github:Swixixle/HALO-RECEIPTS#main\n" +
-  "E2E tests require access to the halo-receipts dependency. " +
-  "See README for details.";
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function isModuleNotFound(err: unknown): boolean {
-  return (
-    err instanceof Error &&
-    "code" in err &&
-    ((err as NodeJS.ErrnoException).code === "ERR_MODULE_NOT_FOUND" ||
-      (err as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND")
-  );
-}
 
 function buildMessages(
   promptOrMessages: string | Array<{ role: string; content: string }>
@@ -67,70 +55,41 @@ function buildMessages(
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Invoke an LLM via the real halo-receipts `invokeLLMWithHalo` function,
- * which handles provenance tracking and HALO receipt signing.
+ * Invoke an LLM via the halo-receipts contract.
  *
- * The `__endpoint` field is used to route the request inside halo-receipts
- * and is stripped before the payload reaches the upstream provider.
+ * The contract wraps `invokeLLMWithHalo` to inject `haloSignTranscript` and
+ * capture the transcript for later verification. The `__endpoint` field routes
+ * the request inside halo-receipts and is stripped before reaching the provider.
  */
 export async function invokeLLMWithHaloAdapter(
   args: InvokeLLMWithHaloArgs
 ): Promise<InvokeLLMWithHaloResult> {
-  let invokeLLMWithHalo: (payload: Record<string, unknown>) => Promise<InvokeLLMWithHaloResult>;
-  try {
-    // Dynamic import so the package remains optional; throws at runtime if missing
-    ({ invokeLLMWithHalo } = await import("halo-receipts/server/llm/invokeLLMWithHalo.js"));
-    if (typeof invokeLLMWithHalo !== "function") {
-      throw new Error("invokeLLMWithHalo export not found in halo-receipts");
-    }
-  } catch (err) {
-    if (isModuleNotFound(err)) throw new Error(MISSING_PACKAGE_ERROR);
-    throw err;
-  }
+  const contract = await loadHaloReceiptsContract();
 
   const { endpoint, model, promptOrMessages } = args;
   const messages = buildMessages(promptOrMessages);
 
-  // Build the payload shape expected by the halo-receipts openai adapter.
-  // __endpoint is stripped by halo-receipts before reaching the upstream provider.
-  const payload: Record<string, unknown> =
+  const requestPayload: Record<string, unknown> =
     endpoint === "/chat/completions"
       ? { __endpoint: "/chat/completions", messages, model }
       : { __endpoint: "/responses", input: messages, model };
 
-  return invokeLLMWithHalo(payload);
+  return contract.invokeLLMWithHalo({ model, requestPayload });
 }
 
 /**
- * Verify a HALO receipt using the real halo-receipts verification utilities.
+ * Verify a HALO transcript receipt via the halo-receipts contract.
  *
- * Returns { ok: true } when the receipt is valid, or
- * { ok: false, errors: [...] } describing what failed.
+ * Always verifies the transcript hash. Also verifies the Ed25519 signature
+ * when RECEIPT_VERIFY_KEY is set in the environment.
+ *
+ * Returns { ok: true } when all checks pass, or
+ * { ok: false, errors: [...] } describing exactly what failed.
  */
 export async function verifyHaloReceiptAdapter(
   transcript: unknown,
   haloReceipt: unknown
 ): Promise<HaloVerifyResult> {
-  let verifyFn: (transcript: unknown, receipt: unknown) => Promise<HaloVerifyResult>;
-  try {
-    // Dynamic import so the package remains optional; throws at runtime if missing
-    const m = await import("halo-receipts");
-    const candidate = m.verifyForensicPack ?? m.verifyReceipt;
-    if (candidate === undefined || candidate === null) {
-      throw new Error(
-        "halo-receipts does not export verifyForensicPack or verifyReceipt"
-      );
-    }
-    if (typeof candidate !== "function") {
-      throw new Error(
-        `halo-receipts exports verifyForensicPack/verifyReceipt but it is not a function (got ${typeof candidate})`
-      );
-    }
-    verifyFn = candidate;
-  } catch (err) {
-    if (isModuleNotFound(err)) throw new Error(MISSING_PACKAGE_ERROR);
-    throw err;
-  }
-
-  return verifyFn(transcript, haloReceipt);
+  const contract = await loadHaloReceiptsContract();
+  return contract.verifyTranscriptReceipt(transcript, haloReceipt);
 }

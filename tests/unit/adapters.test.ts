@@ -15,8 +15,15 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 describe("adapter isolation – unit suite must not import adapters", () => {
   // Collect all unit test files except this one
   const unitDir = __dirname;
+  // Excluded from the isolation check:
+  //   adapters.test.ts             – this file itself
+  //   haloReceipts.contract.test.ts – integration smoke test; imports from
+  //                                   src/adapters intentionally to validate
+  //                                   the contract loader (no live LLM calls).
+  const ISOLATION_EXCLUDED = new Set(["adapters.test.ts", "haloReceipts.contract.test.ts"]);
+
   const unitFiles = readdirSync(unitDir)
-    .filter((f) => f.endsWith(".test.ts") && f !== "adapters.test.ts")
+    .filter((f) => f.endsWith(".test.ts") && !ISOLATION_EXCLUDED.has(f))
     .map((f) => join(unitDir, f));
 
   for (const filePath of unitFiles) {
