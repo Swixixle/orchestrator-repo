@@ -216,4 +216,58 @@ describe("ingestValet bridge helpers", () => {
       rmSync(fixtureDir, { recursive: true, force: true });
     }
   });
+
+  it("throws when RECEIPT_SIGNING_KEY is missing after HMAC verification passes", async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), "ingest-valet-"));
+    const hmacKey = "valet-test-key";
+
+    const receipt = {
+      prompt: "What causes tides?",
+      completion: "Mainly Moon and Sun gravity.",
+      model: "gpt-test",
+      created_at: "2026-02-22T00:00:00.000Z",
+    } as Record<string, unknown>;
+
+    const transcript = normalizeValetToTranscript(receipt);
+    const payload = canonicalJson(transcript);
+    const signature = createHmac("sha256", hmacKey).update(payload, "utf8").digest("hex");
+
+    writeFileSync(
+      join(fixtureDir, "receipt.json"),
+      JSON.stringify(
+        {
+          ...receipt,
+          signature,
+          signature_type: "hmac-sha256",
+        },
+        null,
+        2
+      )
+    );
+
+    const originalHmacKey = process.env.VALET_RECEIPT_HMAC_KEY;
+    const originalSigningKey = process.env.RECEIPT_SIGNING_KEY;
+    process.env.VALET_RECEIPT_HMAC_KEY = hmacKey;
+    delete process.env.RECEIPT_SIGNING_KEY;
+
+    try {
+      await expect(runIngestValet(["node", "ingestValet.ts", fixtureDir])).rejects.toThrow(
+        "RECEIPT_SIGNING_KEY"
+      );
+    } finally {
+      if (typeof originalHmacKey === "string") {
+        process.env.VALET_RECEIPT_HMAC_KEY = originalHmacKey;
+      } else {
+        delete process.env.VALET_RECEIPT_HMAC_KEY;
+      }
+
+      if (typeof originalSigningKey === "string") {
+        process.env.RECEIPT_SIGNING_KEY = originalSigningKey;
+      } else {
+        delete process.env.RECEIPT_SIGNING_KEY;
+      }
+
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
+  });
 });
