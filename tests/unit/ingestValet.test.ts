@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHmac, generateKeyPairSync } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -265,6 +265,53 @@ describe("ingestValet bridge helpers", () => {
         process.env.RECEIPT_SIGNING_KEY = originalSigningKey;
       } else {
         delete process.env.RECEIPT_SIGNING_KEY;
+      }
+
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns false and writes protocol report when valet HMAC is invalid", async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), "ingest-valet-"));
+    const hmacKey = "valet-test-key";
+
+    writeFileSync(
+      join(fixtureDir, "receipt.json"),
+      JSON.stringify(
+        {
+          prompt: "What causes tides?",
+          completion: "Mainly Moon and Sun gravity.",
+          model: "gpt-test",
+          created_at: "2026-02-22T00:00:00.000Z",
+          signature: "definitely-invalid-signature",
+          signature_type: "hmac-sha256",
+        },
+        null,
+        2
+      )
+    );
+
+    const originalHmacKey = process.env.VALET_RECEIPT_HMAC_KEY;
+    process.env.VALET_RECEIPT_HMAC_KEY = hmacKey;
+
+    try {
+      const ok = await runIngestValet(["node", "ingestValet.ts", fixtureDir]);
+      expect(ok).toBe(false);
+
+      const reportPath = join(fixtureDir, "halo_checkpoint", "protocol_report.json");
+      const report = JSON.parse(readFileSync(reportPath, "utf8")) as {
+        status: string;
+        checks: Array<{ name: string; passed: boolean }>;
+      };
+
+      expect(report.status).toBe("FAIL");
+      const hmacCheck = report.checks.find((entry) => entry.name === "valet_hmac_verification");
+      expect(hmacCheck?.passed).toBe(false);
+    } finally {
+      if (typeof originalHmacKey === "string") {
+        process.env.VALET_RECEIPT_HMAC_KEY = originalHmacKey;
+      } else {
+        delete process.env.VALET_RECEIPT_HMAC_KEY;
       }
 
       rmSync(fixtureDir, { recursive: true, force: true });
