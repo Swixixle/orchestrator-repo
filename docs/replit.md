@@ -1,6 +1,6 @@
 # Replit deployment
 
-This repository can run as a single URL app (UI + API) using the console server.
+This repository can run as a single-URL app (UI + API) using the HALO Console server.
 
 ## Required Replit Secrets
 
@@ -34,8 +34,8 @@ npm run console:prod
 
 - The server binds to `0.0.0.0`.
 - The server respects `PORT` (falls back to `CONSOLE_PORT`, then `8080`).
-- Master Console UI: `/console` (`/` redirects)
-- Evidence Inspector UI: `/inspector`
+- HALO Console UI: `/console` (`/` redirects)
+- HALO Evidence Inspector UI: `/inspector`
 - Health endpoint: `GET /api/health`.
 
 ## Quick Gemini smoke run (copy/paste)

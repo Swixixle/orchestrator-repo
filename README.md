@@ -300,9 +300,9 @@ If `CONSOLE_UI_DIST_DIR` exists, non-API routes fall back to `index.html` for SP
 
 UI routes:
 
-- `GET /console` (Master Console)
 - `GET /` (redirects to `/console`)
-- `GET /inspector` (Evidence Inspector)
+- `GET /console` (HALO Console)
+- `GET /inspector` (HALO Evidence Inspector)
 
 ---
 
