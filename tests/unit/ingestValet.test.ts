@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createHmac, generateKeyPairSync } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import {
   canonicalJson,
   createMasterReceipt,
   normalizeValetToTranscript,
+  runIngestValet,
   sha256Hex,
   verifyCheckpointOffline,
   verifyValetHmac,
@@ -178,5 +182,38 @@ describe("ingestValet bridge helpers", () => {
 
     expect(verified.ok).toBe(false);
     expect(verified.reason).toContain("missing verify key");
+  });
+
+  it("throws when VALET_RECEIPT_HMAC_KEY is missing", async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), "ingest-valet-"));
+    writeFileSync(
+      join(fixtureDir, "receipt.json"),
+      JSON.stringify(
+        {
+          prompt: "What causes tides?",
+          completion: "Mainly Moon and Sun gravity.",
+          model: "gpt-test",
+          created_at: "2026-02-22T00:00:00.000Z",
+        },
+        null,
+        2
+      )
+    );
+
+    const originalHmacKey = process.env.VALET_RECEIPT_HMAC_KEY;
+    delete process.env.VALET_RECEIPT_HMAC_KEY;
+
+    try {
+      await expect(runIngestValet(["node", "ingestValet.ts", fixtureDir])).rejects.toThrow(
+        "VALET_RECEIPT_HMAC_KEY is required"
+      );
+    } finally {
+      if (typeof originalHmacKey === "string") {
+        process.env.VALET_RECEIPT_HMAC_KEY = originalHmacKey;
+      } else {
+        delete process.env.VALET_RECEIPT_HMAC_KEY;
+      }
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
   });
 });
