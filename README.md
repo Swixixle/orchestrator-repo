@@ -278,6 +278,19 @@ Provider requirements for `/api/run`:
 
 - `provider=openai` requires `OPENAI_API_KEY`
 - `provider=anthropic` requires `ANTHROPIC_API_KEY`
+- `provider=gemini` requires `GEMINI_API_KEY`
+
+Replit quick smoke check (after app boot):
+
+```sh
+curl -sS -X POST "http://127.0.0.1:${PORT:-8080}/api/run" \
+  -H "content-type: application/json" \
+  -d '{
+    "provider": "gemini",
+    "model": "gemini-1.5-flash",
+    "prompt": "In 3 bullets, explain what causes ocean tides."
+  }'
+```
 
 If `CONSOLE_UI_DIST_DIR` exists, non-API routes fall back to `index.html` for SPA serving.
 
