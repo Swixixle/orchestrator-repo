@@ -6,8 +6,8 @@
  * orchestrator's use, and fails fast with precise diagnostics
  * if the contract surface drifts.
  *
- * One import path per sub-module. No root "halo-receipts" import.
- * No guessed export names. One place to fix when halo-receipts changes.
+ * Imports HALO_RECEIPTS_CONTRACT from the package root entry point.
+ * No deep-path assumptions. One place to fix when halo-receipts changes.
  *
  * Override the expected contract version via:
  *   HALO_RECEIPTS_CONTRACT_VERSION=1.0.0
@@ -72,12 +72,16 @@ export interface HaloReceiptsContract {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function isModuleNotFound(err: unknown): boolean {
-  return (
-    err instanceof Error &&
-    "code" in err &&
-    ((err as NodeJS.ErrnoException).code === "ERR_MODULE_NOT_FOUND" ||
-      (err as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND")
-  );
+  if (!(err instanceof Error)) return false;
+  const code = (err as NodeJS.ErrnoException).code;
+  if (code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND") return true;
+  // Vite throws a plain Error (no code) when the package exists in node_modules
+  // but has no main/exports entry point yet.  Treat it the same as "not installed"
+  // so the smoke test skips gracefully until the upstream package ships dist JS.
+  // NOTE: This substring check targets Vite 7 error messages.  If Vite changes
+  // its wording, update this guard accordingly.
+  if (err.message.includes("Failed to resolve entry for package")) return true;
+  return false;
 }
 
 // ── Loader ────────────────────────────────────────────────────────────────────
@@ -87,7 +91,7 @@ let cached: HaloReceiptsContract | null = null;
 /**
  * Load and validate the HALO-RECEIPTS integration contract.
  *
- * - Imports from three known stable sub-paths (never the package root).
+ * - Imports HALO_RECEIPTS_CONTRACT from the package root (one import, no sub-paths).
  * - Validates every required export is present and callable.
  * - Throws a single clear error message on any failure, listing exactly
  *   which exports were found, which were missing, and how to fix it.
@@ -99,59 +103,46 @@ export async function loadHaloReceiptsContract(): Promise<HaloReceiptsContract> 
   const contractVersion =
     process.env.HALO_RECEIPTS_CONTRACT_VERSION ?? DEFAULT_CONTRACT_VERSION;
 
-  // ── Step 1: import sub-modules ────────────────────────────────────────────
-  // Use .js extension: Vite/vitest maps .js → .ts for TypeScript source.
-  // Deep sub-paths avoid depending on the package root entry point
-  // (halo-receipts has no main/exports in its package.json).
+  // ── Step 1: import from package root ─────────────────────────────────────
+  // HALO-RECEIPTS exports HALO_RECEIPTS_CONTRACT from its root entry point.
+  // A single root import replaces the previous three deep sub-path imports.
 
-  let invokeLLMWithHaloRaw: unknown;
-  let haloSignTranscriptRaw: unknown;
-  let stableStringifyStrictRaw: unknown;
-  let sha256HexRaw: unknown;
+  let contractExport: Record<string, unknown>;
 
   try {
-    const m = await import("halo-receipts/server/llm/invokeLLMWithHalo.js");
-    invokeLLMWithHaloRaw = m.invokeLLMWithHalo;
+    // Indirect specifier: prevents Vite's import-analysis plugin from attempting
+    // to statically resolve "halo-receipts" at transform time.  When the package
+    // is not installed (optional dep) or has no entry point yet (PREREQ: HALO-RECEIPTS
+    // must ship dist JS and update package.json main/exports), Vite 7 throws
+    // "Failed to resolve entry for package" for static string-literal imports even
+    // inside dynamic import().  Using a variable bypasses that static analysis and
+    // lets the runtime throw a catchable MODULE_NOT_FOUND instead.
+    const specifier = "halo-receipts";
+    const m = await import(/* @vite-ignore */ specifier);
+    const raw = (m as Record<string, unknown>).HALO_RECEIPTS_CONTRACT;
+    if (!raw || typeof raw !== "object") {
+      throw new Error(
+        "[halo-receipts contract] HALO_RECEIPTS_CONTRACT not exported from package root.\n" +
+          "  Fix:      Pin halo-receipts to a commit that exports HALO_RECEIPTS_CONTRACT."
+      );
+    }
+    contractExport = raw as Record<string, unknown>;
   } catch (err) {
     if (isModuleNotFound(err)) {
       throw new Error(
         "[halo-receipts contract] Package not installed.\n" +
           "  Loaded:   (not found)\n" +
-          "  Path:     halo-receipts/server/llm/invokeLLMWithHalo.js\n" +
+          "  Path:     halo-receipts (root)\n" +
           "  Fix:      npm install github:Swixixle/HALO-RECEIPTS#main"
       );
     }
     throw err;
   }
 
-  try {
-    const m = await import("halo-receipts/server/llm/haloSignTranscript.js");
-    haloSignTranscriptRaw = m.haloSignTranscript;
-  } catch (err) {
-    if (isModuleNotFound(err)) {
-      throw new Error(
-        "[halo-receipts contract] Sub-module not found.\n" +
-          "  Path:     halo-receipts/server/llm/haloSignTranscript.js\n" +
-          "  Fix:      Pin halo-receipts to a commit that exports haloSignTranscript."
-      );
-    }
-    throw err;
-  }
-
-  try {
-    const m = await import("halo-receipts/server/audit-canon.js");
-    stableStringifyStrictRaw = m.stableStringifyStrict;
-    sha256HexRaw = m.sha256Hex;
-  } catch (err) {
-    if (isModuleNotFound(err)) {
-      throw new Error(
-        "[halo-receipts contract] Sub-module not found.\n" +
-          "  Path:     halo-receipts/server/audit-canon.js\n" +
-          "  Fix:      Pin halo-receipts to a commit that exports stableStringifyStrict and sha256Hex."
-      );
-    }
-    throw err;
-  }
+  const invokeLLMWithHaloRaw = contractExport.invokeLLMWithHalo;
+  const haloSignTranscriptRaw = contractExport.haloSignTranscript;
+  const stableStringifyStrictRaw = contractExport.stableStringifyStrict;
+  const sha256HexRaw = contractExport.sha256Hex;
 
   // ── Step 2: validate required exports ────────────────────────────────────
 

@@ -6,6 +6,7 @@
  *
  * What it checks:
  *   - loadHaloReceiptsContract() resolves without throwing
+ *   - HALO_RECEIPTS_CONTRACT is exported from the package root (no deep-path imports)
  *   - The returned contract has all required callable exports
  *   - contractVersion is a parseable semver string
  *
