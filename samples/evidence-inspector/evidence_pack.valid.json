@@ -1,0 +1,37 @@
+{
+  "receipt_id": "sample-receipt-001",
+  "content_hash": "966fd6fefa275ae327cc8c6e8634200ba1def67e6a63261c9262119e5a970a0f",
+  "transcript": {
+    "speaker": "assistant",
+    "text": "Ocean tides are driven primarily by the Moon and secondarily by the Sun.",
+    "turns": [
+      {
+        "role": "user",
+        "content": "What causes tides?"
+      },
+      {
+        "role": "assistant",
+        "content": "Mainly lunar and solar gravity."
+      }
+    ]
+  },
+  "eli_assertions": [
+    {
+      "assertion_type": "FACT",
+      "text": "The Moon contributes the dominant tidal force on Earth.",
+      "confidence": 0.95,
+      "sources": [
+        "turn:2"
+      ]
+    },
+    {
+      "assertion_type": "INFERENCE",
+      "text": "Coastal tide timing changes as the Moon’s relative position changes.",
+      "confidence": 0.76,
+      "sources": [
+        "turn:2"
+      ]
+    }
+  ],
+  "commentary": "Analyst note: concise educational answer with no regional nuance."
+}

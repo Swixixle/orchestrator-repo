@@ -127,6 +127,44 @@ Writes `out/verify_report.md`. Exits 0 on PASS, 1 on FAIL.
 
 ---
 
+## Evidence-Led UI (HALO Evidence Inspector)
+
+Run a provenance-first local inspector for:
+
+- `master_receipt.json`
+- `evidence_pack.json`
+- `artifact.json` (combined)
+
+```sh
+npm run ui:dev
+```
+
+Then open the local Vite URL (typically `http://localhost:5173`).
+
+To regenerate manual acceptance fixtures:
+
+```sh
+npm run samples:generate
+```
+
+The inspector renders, in order:
+
+1. Verified/Unverified status badge (**DERIVED**)
+2. Signed master receipt summary (**SIGNED**, hash-only)
+3. Derived verification panel (artifact verification + recomputed local verification)
+4. Evidence pack transcript + ELI assertions (**UNSIGNED**, transcript marked **Sensitive**)
+5. Unsigned commentary panel (**UNSIGNED**)
+6. Leak scan findings (uses `src/utils/leakScan.ts`); Share/Export is disabled when leaks are detected
+
+Verification policy:
+
+- Never trusts `artifact.verification` alone
+- Recomputes transcript hash when evidence pack transcript is loaded
+- Attempts signature verification when a public key is available
+- Shows `Unverified` when recomputation/signature checks cannot be completed
+
+---
+
 ## Truth Claims
 
 ### What we can prove

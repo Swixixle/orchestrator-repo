@@ -1,0 +1,55 @@
+{
+  "master_receipt": {
+    "receipt_version": "1.0.0",
+    "receipt_id": "sample-receipt-001",
+    "content_hash": "966fd6fefa275ae327cc8c6e8634200ba1def67e6a63261c9262119e5a970a0f",
+    "signature": "WUUl0/o9HS4z41pusDg/mimYOCChOKYgg6Bx558AahDQcKXLYWeVycdryah5gBxINu/D9syUm+EACYXjXCenDg==",
+    "signed_payload": "{\"content_hash\":\"966fd6fefa275ae327cc8c6e8634200ba1def67e6a63261c9262119e5a970a0f\",\"metadata\":{\"created_at\":\"2026-02-22T00:00:00.000Z\",\"public_key\":\"-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAjL1/338R7UmKTMUZFaMK8omFxhup8r7uBLSnU4+z35c=\\n-----END PUBLIC KEY-----\\n\",\"purpose\":\"sample-artifact\"},\"receipt_id\":\"sample-receipt-001\",\"receipt_version\":\"1.0.0\"}",
+    "metadata": {
+      "created_at": "2026-02-22T00:00:00.000Z",
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAjL1/338R7UmKTMUZFaMK8omFxhup8r7uBLSnU4+z35c=\n-----END PUBLIC KEY-----\n",
+      "purpose": "sample-artifact"
+    },
+    "verification": {
+      "status": "verified",
+      "note": "artifact-provided status only; UI should treat as DERIVED (artifact)"
+    }
+  },
+  "evidence_pack": {
+    "receipt_id": "sample-receipt-001",
+    "content_hash": "966fd6fefa275ae327cc8c6e8634200ba1def67e6a63261c9262119e5a970a0f",
+    "transcript": {
+      "speaker": "assistant",
+      "text": "Ocean tides are driven primarily by the Moon and secondarily by the Sun.",
+      "turns": [
+        {
+          "role": "user",
+          "content": "What causes tides?"
+        },
+        {
+          "role": "assistant",
+          "content": "Mainly lunar and solar gravity."
+        }
+      ]
+    },
+    "eli_assertions": [
+      {
+        "assertion_type": "FACT",
+        "text": "The Moon contributes the dominant tidal force on Earth.",
+        "confidence": 0.95,
+        "sources": [
+          "turn:2"
+        ]
+      },
+      {
+        "assertion_type": "INFERENCE",
+        "text": "Coastal tide timing changes as the Moon’s relative position changes.",
+        "confidence": 0.76,
+        "sources": [
+          "turn:2"
+        ]
+      }
+    ],
+    "commentary": "Analyst note: concise educational answer with no regional nuance."
+  }
+}
