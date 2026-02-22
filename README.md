@@ -166,6 +166,30 @@ npm run ui:dev
 
 Then open the local Vite URL (typically `http://localhost:5173`).
 
+Production build + serve:
+
+```sh
+npm run ui:build
+npm run ui:build:server
+npm run ui:serve
+```
+
+One-command production run:
+
+```sh
+npm run ui:prod
+```
+
+Subpath deployment example:
+
+```sh
+UI_BASE_PATH=/evidence/ npm run ui:build
+npm run ui:build:server
+UI_BASE_PATH=/evidence/ UI_PORT=8080 npm run ui:serve
+```
+
+See full production guide: `docs/evidence-inspector-production.md`.
+
 To regenerate manual acceptance fixtures:
 
 ```sh

@@ -13,6 +13,10 @@
     "samples:generate": "node scripts/generate-evidence-inspector-samples.mjs",
     "ui:dev": "vite",
     "ui:build": "vite build",
+    "ui:build:server": "tsc -p tsconfig.server.json",
+    "ui:serve": "node dist/server/uiServer.js",
+    "ui:prod": "npm run ui:build && npm run ui:build:server && npm run ui:serve",
+    "ui:smoke": "npm run ui:build && npm run ui:build:server && node scripts/ui-smoke.mjs",
     "ui:preview": "vite preview"
   },
   "repository": {
