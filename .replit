@@ -1,0 +1,10 @@
+language = "nodejs"
+run = "npm run console:dev"
+
+[env]
+PORT = "8080"
+CONSOLE_HOST = "0.0.0.0"
+
+[[ports]]
+localPort = 8080
+externalPort = 80
