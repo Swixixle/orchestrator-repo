@@ -9,6 +9,7 @@
     "test:e2e": "RUN_E2E=1 vitest run --reporter=verbose",
     "demo": "tsx src/cli/run.ts",
     "verify": "tsx src/cli/verify.ts",
+    "ingest-valet": "tsx src/cli/ingestValet.ts",
     "samples:generate": "node scripts/generate-evidence-inspector-samples.mjs",
     "ui:dev": "vite",
     "ui:build": "vite build",

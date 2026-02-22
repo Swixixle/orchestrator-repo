@@ -1,0 +1,842 @@
+#!/usr/bin/env node
+import {
+  createHash,
+  createHmac,
+  createPrivateKey,
+  createPublicKey,
+  randomUUID,
+  sign as signDetached,
+  verify as verifyDetached,
+  timingSafeEqual,
+} from "node:crypto";
+import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { scanForLeaks } from "../utils/leakScan.js";
+import { tagResponseToLedger } from "../adapters/eliAdapter.js";
+
+const DOMAIN_PREFIX = "HALO_MASTER_RECEIPT_V1|";
+
+type JsonRecord = Record<string, unknown>;
+
+type HmacStrategy =
+  | "canonical_transcript"
+  | "canonical_receipt_without_signatures"
+  | "transcript_hash_field";
+
+interface ValetSourceFile {
+  file: string;
+  sha256: string;
+}
+
+interface MasterReceipt {
+  receipt_version: string;
+  receipt_id: string;
+  content_hash: string;
+  signature_scheme: "ed25519";
+  signature: string;
+  metadata: Record<string, unknown>;
+  verification: {
+    derived_status: "PASS" | "FAIL";
+    verified_at: string;
+    valet_hmac_strategy: HmacStrategy | "none";
+    checks: string[];
+  };
+}
+
+interface EvidencePack {
+  receipt_id: string;
+  content_hash: string;
+  valet_source: {
+    source_dir: string;
+    files: ValetSourceFile[];
+    source_receipt_file: string;
+  };
+  transcript: JsonRecord;
+  eli_assertions: Array<{
+    assertion_type: string;
+    text: string;
+    confidence?: number;
+    sources: string[];
+  }>;
+  notes?: string;
+}
+
+interface ProtocolCheck {
+  name: string;
+  passed: boolean;
+  detail: string;
+}
+
+interface ProtocolReport {
+  status: "PASS" | "FAIL";
+  generated_at: string;
+  input_dir: string;
+  output_dir: string;
+  matched_hmac_strategy: HmacStrategy | "none";
+  checks: ProtocolCheck[];
+  leak_scan: {
+    master_ok: boolean;
+    master_findings: Array<{ location: string; pattern: string }>;
+    evidence_ok: boolean;
+    evidence_findings: Array<{ location: string; pattern: string }>;
+  };
+  submission?: {
+    attempted: boolean;
+    ok: boolean;
+    endpoint: string;
+    status?: number;
+    detail: string;
+  };
+}
+
+interface IngestArgs {
+  inputDir: string;
+}
+
+interface HmacVerifyResult {
+  ok: boolean;
+  strategy: HmacStrategy | "none";
+  reason?: string;
+}
+
+interface SubmissionResult {
+  attempted: boolean;
+  ok: boolean;
+  endpoint: string;
+  status?: number;
+  responseBody?: unknown;
+  detail: string;
+}
+
+export function canonicalJson(value: unknown): string {
+  if (value === null) return "null";
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number" || typeof value === "boolean") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  }
+  if (typeof value === "object") {
+    const record = value as JsonRecord;
+    const keys = Object.keys(record).sort();
+    const entries = keys.map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`);
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(String(value));
+}
+
+export function sha256Hex(input: string): string {
+  return createHash("sha256").update(input, "utf8").digest("hex");
+}
+
+export function parseIngestArgs(argv: string[]): IngestArgs {
+  const args = argv.slice(2).filter((value) => value.trim().length > 0);
+  const firstPositional = args.find((value) => !value.startsWith("-"));
+  if (!firstPositional) {
+    throw new Error("Provide a Valet dist directory path (e.g. npm run ingest-valet -- dist/<slug>/)");
+  }
+  return { inputDir: resolve(firstPositional) };
+}
+
+export function normalizeValetToTranscript(receipt: JsonRecord): JsonRecord {
+  const directMessages = asMessageArray(receipt.messages);
+  const transcriptMessages = asMessageArray(asRecord(receipt.transcript)?.messages);
+  const conversationMessages = asMessageArray(receipt.conversation);
+
+  const prompt =
+    asString(receipt.prompt) ??
+    asString(receipt.input) ??
+    asString(asRecord(receipt.request)?.prompt) ??
+    asString(asRecord(receipt.request)?.input);
+
+  const completion =
+    asString(receipt.completion) ??
+    asString(receipt.output) ??
+    asString(asRecord(receipt.response)?.text) ??
+    asString(asRecord(receipt.response)?.output_text) ??
+    asString(asRecord(receipt.result)?.text);
+
+  let messages = directMessages ?? transcriptMessages ?? conversationMessages;
+  if (!messages || messages.length === 0) {
+    const synthesized: Array<{ role: string; content: string }> = [];
+    if (prompt) synthesized.push({ role: "user", content: prompt });
+    if (completion) synthesized.push({ role: "assistant", content: completion });
+    messages = synthesized;
+  }
+
+  const transcript: JsonRecord = {
+    messages,
+    model:
+      asString(receipt.model) ??
+      asString(asRecord(receipt.request)?.model) ??
+      asString(asRecord(receipt.response)?.model) ??
+      "unknown",
+    created_at:
+      asString(receipt.created_at) ??
+      asString(receipt.timestamp) ??
+      asString(asRecord(receipt.response)?.created_at) ??
+      "unknown",
+  };
+
+  const inputs =
+    asRecord(receipt.inputs) ??
+    asRecord(receipt.request) ??
+    asRecord(asRecord(receipt.transcript)?.inputs);
+  if (inputs) {
+    transcript.inputs = inputs;
+  }
+
+  return transcript;
+}
+
+export function verifyValetHmac(receipt: JsonRecord, hmacKey: string): HmacVerifyResult {
+  const signature = readValetSignature(receipt);
+  if (!signature) {
+    return { ok: false, strategy: "none", reason: "No Valet HMAC signature field found." };
+  }
+
+  const transcript = normalizeValetToTranscript(receipt);
+  const canonicalTranscript = canonicalJson(transcript);
+  const canonicalReceipt = canonicalJson(stripSignatureFields(receipt));
+  const transcriptHashField =
+    asString(receipt.transcript_hash) ??
+    asString(receipt.content_hash) ??
+    asString(asRecord(receipt.verification)?.transcript_hash);
+
+  const candidates: Array<{ strategy: HmacStrategy; payload: string }> = [
+    { strategy: "canonical_transcript", payload: canonicalTranscript },
+    { strategy: "canonical_receipt_without_signatures", payload: canonicalReceipt },
+  ];
+
+  if (transcriptHashField) {
+    candidates.push({ strategy: "transcript_hash_field", payload: transcriptHashField });
+  }
+
+  for (const candidate of candidates) {
+    const digestHex = createHmac("sha256", hmacKey).update(candidate.payload, "utf8").digest("hex");
+    const digestBase64 = Buffer.from(digestHex, "hex").toString("base64");
+
+    if (safeSignatureCompare(signature, digestHex) || safeSignatureCompare(signature, digestBase64)) {
+      return { ok: true, strategy: candidate.strategy };
+    }
+  }
+
+  return {
+    ok: false,
+    strategy: "none",
+    reason: "No HMAC verification strategy matched this receipt signature.",
+  };
+}
+
+export function createMasterReceipt(input: {
+  transcript: JsonRecord;
+  sourceDir: string;
+  sourceReceiptFile: string;
+  sourceFiles: ValetSourceFile[];
+  matchedHmacStrategy: HmacStrategy;
+  signingKeyPem: string;
+}): { master_receipt: MasterReceipt; evidence_pack: EvidencePack } {
+  const canonicalTranscript = canonicalJson(input.transcript);
+  const contentHash = sha256Hex(canonicalTranscript);
+  const receiptId = randomUUID();
+
+  const envelope = {
+    receipt_version: "halo.master.v1",
+    receipt_id: receiptId,
+    content_hash: contentHash,
+    signature_scheme: "ed25519",
+  };
+  const envelopePayload = DOMAIN_PREFIX + canonicalJson(envelope);
+
+  const privateKey = createPrivateKey(normalizePem(input.signingKeyPem));
+  const signature = signDetached(null, Buffer.from(envelopePayload, "utf8"), privateKey).toString("base64");
+
+  const assistantText = extractAssistantText(input.transcript);
+  const ledger = assistantText ? tagResponseToLedger(assistantText) : { claims: [] };
+
+  const evidence_pack: EvidencePack = {
+    receipt_id: receiptId,
+    content_hash: contentHash,
+    valet_source: {
+      source_dir: input.sourceDir,
+      files: input.sourceFiles,
+      source_receipt_file: input.sourceReceiptFile,
+    },
+    transcript: input.transcript,
+    eli_assertions: (ledger.claims ?? []).map((claim) => ({
+      assertion_type: claim.type,
+      text: claim.text,
+      sources: (claim.span_refs ?? []).map((span) => JSON.stringify(span)),
+      confidence: undefined,
+    })),
+    notes: "Sensitive evidence pack. Do not share externally without policy review.",
+  };
+
+  const master_receipt: MasterReceipt = {
+    receipt_version: envelope.receipt_version,
+    receipt_id: receiptId,
+    content_hash: contentHash,
+    signature_scheme: "ed25519",
+    signature,
+    metadata: {
+      source: "valet-ingest-bridge",
+      ingested_at: new Date().toISOString(),
+      source_dir: input.sourceDir,
+      source_receipt_file: input.sourceReceiptFile,
+    },
+    verification: {
+      derived_status: "PASS",
+      verified_at: new Date().toISOString(),
+      valet_hmac_strategy: input.matchedHmacStrategy,
+      checks: ["valet_hmac_verified", "content_hash_computed", "ed25519_checkpoint_generated"],
+    },
+  };
+
+  return { master_receipt, evidence_pack };
+}
+
+export function verifyCheckpointOffline(input: {
+  masterReceipt: MasterReceipt;
+  evidencePack: EvidencePack;
+  verifyKeyPem?: string;
+  signingKeyPem?: string;
+}): { ok: boolean; reason?: string } {
+  const canonicalTranscript = canonicalJson(input.evidencePack.transcript);
+  const expectedHash = sha256Hex(canonicalTranscript);
+
+  if (expectedHash !== input.masterReceipt.content_hash) {
+    return { ok: false, reason: "content_hash mismatch between master receipt and evidence transcript" };
+  }
+
+  if (input.evidencePack.content_hash !== input.masterReceipt.content_hash) {
+    return { ok: false, reason: "evidence_pack.content_hash mismatch with master receipt" };
+  }
+
+  const envelope = {
+    receipt_version: input.masterReceipt.receipt_version,
+    receipt_id: input.masterReceipt.receipt_id,
+    content_hash: input.masterReceipt.content_hash,
+    signature_scheme: input.masterReceipt.signature_scheme,
+  };
+  const payload = Buffer.from(DOMAIN_PREFIX + canonicalJson(envelope), "utf8");
+
+  const publicKeyPem =
+    input.verifyKeyPem ??
+    derivePublicKeyPemFromPrivate(input.signingKeyPem) ??
+    asString(input.masterReceipt.metadata?.public_key);
+
+  if (!publicKeyPem) {
+    return { ok: false, reason: "missing verify key (RECEIPT_VERIFY_KEY) for Ed25519 verification" };
+  }
+
+  const publicKey = createPublicKey(normalizePem(publicKeyPem));
+  const ok = verifyDetached(
+    null,
+    payload,
+    publicKey,
+    Buffer.from(input.masterReceipt.signature, "base64")
+  );
+
+  return ok ? { ok: true } : { ok: false, reason: "ed25519 signature verification failed" };
+}
+
+export async function runIngestValet(argv: string[]): Promise<boolean> {
+  const { inputDir } = parseIngestArgs(argv);
+  ensureDirectory(inputDir);
+
+  const sourceFiles = collectSourceFiles(inputDir);
+  const receiptFile = pickReceiptFile(sourceFiles);
+  if (!receiptFile) {
+    throw new Error("No Valet receipt JSON found. Expected receipt.json or receipt*.json in input directory.");
+  }
+
+  const receiptPath = join(inputDir, receiptFile.file);
+  const receiptJson = readJsonObject(receiptPath);
+
+  const checks: ProtocolCheck[] = [];
+  const hmacKey = process.env.VALET_RECEIPT_HMAC_KEY;
+  if (!hmacKey) {
+    throw new Error("VALET_RECEIPT_HMAC_KEY is required to verify Valet receipt HMAC.");
+  }
+
+  const hmacResult = verifyValetHmac(receiptJson, hmacKey);
+  checks.push({
+    name: "valet_hmac_verification",
+    passed: hmacResult.ok,
+    detail: hmacResult.ok
+      ? `Matched strategy: ${hmacResult.strategy}`
+      : `Failed: ${hmacResult.reason ?? "unknown"}`,
+  });
+
+  if (!hmacResult.ok || hmacResult.strategy === "none") {
+    return finalizeRun({
+      checks,
+      inputDir,
+      outputDir: join(inputDir, "halo_checkpoint"),
+      matchedHmacStrategy: "none",
+      masterLeakScan: { ok: true, findings: [] },
+      evidenceLeakScan: { ok: true, findings: [] },
+    });
+  }
+
+  const signingKey = process.env.RECEIPT_SIGNING_KEY;
+  if (!signingKey) {
+    throw new Error("RECEIPT_SIGNING_KEY (Ed25519 private key PEM) is required.");
+  }
+
+  const transcript = normalizeValetToTranscript(receiptJson);
+
+  const outputDir = join(inputDir, "halo_checkpoint");
+  mkdirSync(outputDir, { recursive: true });
+
+  const { master_receipt, evidence_pack } = createMasterReceipt({
+    transcript,
+    sourceDir: inputDir,
+    sourceReceiptFile: receiptFile.file,
+    sourceFiles,
+    matchedHmacStrategy: hmacResult.strategy,
+    signingKeyPem: signingKey,
+  });
+
+  checks.push({
+    name: "content_hash_computed",
+    passed: true,
+    detail: `content_hash=${master_receipt.content_hash}`,
+  });
+  checks.push({
+    name: "ed25519_checkpoint_generated",
+    passed: true,
+    detail: `receipt_id=${master_receipt.receipt_id}`,
+  });
+
+  const masterNoPlaintext = assertMasterHasNoPlaintext(master_receipt);
+  checks.push({
+    name: "master_receipt_plaintext_check",
+    passed: masterNoPlaintext.ok,
+    detail: masterNoPlaintext.ok ? "No transcript/plaintext fields in master receipt." : masterNoPlaintext.reason,
+  });
+
+  const masterLeakScan = scanForLeaks([{ field: "master_receipt", value: master_receipt }], [
+    process.env.OPENAI_API_KEY,
+    process.env.VALET_RECEIPT_HMAC_KEY,
+    process.env.RECEIPT_SIGNING_KEY,
+  ].filter((v): v is string => typeof v === "string" && v.length > 0));
+
+  const evidenceLeakScan = scanForLeaks([{ field: "evidence_pack", value: evidence_pack }], [
+    process.env.OPENAI_API_KEY,
+    process.env.VALET_RECEIPT_HMAC_KEY,
+    process.env.RECEIPT_SIGNING_KEY,
+  ].filter((v): v is string => typeof v === "string" && v.length > 0));
+
+  checks.push({
+    name: "master_receipt_leak_scan",
+    passed: masterLeakScan.ok,
+    detail: masterLeakScan.ok
+      ? "No leak patterns in master receipt."
+      : masterLeakScan.findings.map((f) => `${f.location}: ${f.pattern}`).join("; "),
+  });
+
+  checks.push({
+    name: "evidence_pack_leak_scan",
+    passed: true,
+    detail: evidenceLeakScan.ok
+      ? "No leak patterns detected."
+      : `Warning only: ${evidenceLeakScan.findings.map((f) => `${f.location}: ${f.pattern}`).join("; ")}`,
+  });
+
+  const verifyResult = verifyCheckpointOffline({
+    masterReceipt: master_receipt,
+    evidencePack: evidence_pack,
+    verifyKeyPem: process.env.RECEIPT_VERIFY_KEY,
+    signingKeyPem: signingKey,
+  });
+  checks.push({
+    name: "offline_verify",
+    passed: verifyResult.ok,
+    detail: verifyResult.ok ? "Offline hash + Ed25519 verification passed." : verifyResult.reason ?? "verification failed",
+  });
+
+  const tamperedEvidence = structuredClone(evidence_pack);
+  tamperedEvidence.transcript = { ...(asRecord(tamperedEvidence.transcript) ?? {}), __tampered: true };
+  const tamperedEvidenceVerify = verifyCheckpointOffline({
+    masterReceipt: master_receipt,
+    evidencePack: tamperedEvidence,
+    verifyKeyPem: process.env.RECEIPT_VERIFY_KEY,
+    signingKeyPem: signingKey,
+  });
+  checks.push({
+    name: "acceptance_tampered_evidence_fails",
+    passed: !tamperedEvidenceVerify.ok,
+    detail: !tamperedEvidenceVerify.ok
+      ? tamperedEvidenceVerify.reason ?? "tampered evidence failed as expected"
+      : "tampered evidence unexpectedly verified",
+  });
+
+  const tamperedMaster = structuredClone(master_receipt);
+  tamperedMaster.content_hash = flipHexChar(master_receipt.content_hash);
+  const tamperedMasterVerify = verifyCheckpointOffline({
+    masterReceipt: tamperedMaster,
+    evidencePack: evidence_pack,
+    verifyKeyPem: process.env.RECEIPT_VERIFY_KEY,
+    signingKeyPem: signingKey,
+  });
+  checks.push({
+    name: "acceptance_tampered_master_fails",
+    passed: !tamperedMasterVerify.ok,
+    detail: !tamperedMasterVerify.ok
+      ? tamperedMasterVerify.reason ?? "tampered master failed as expected"
+      : "tampered master unexpectedly verified",
+  });
+
+  writeFileSync(join(outputDir, "master_receipt.json"), `${JSON.stringify(master_receipt, null, 2)}\n`, "utf8");
+  writeFileSync(join(outputDir, "evidence_pack.json"), `${JSON.stringify(evidence_pack, null, 2)}\n`, "utf8");
+
+  const submission = await maybeSubmitToLedger(master_receipt, evidence_pack);
+  if (submission.attempted) {
+    writeFileSync(
+      join(outputDir, "ledger_submission.json"),
+      `${JSON.stringify(
+        {
+          endpoint: submission.endpoint,
+          ok: submission.ok,
+          status: submission.status,
+          detail: submission.detail,
+          response: submission.responseBody,
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    checks.push({
+      name: "ledger_submission",
+      passed: submission.ok,
+      detail: submission.detail,
+    });
+  }
+
+  return finalizeRun({
+    checks,
+    inputDir,
+    outputDir,
+    matchedHmacStrategy: hmacResult.strategy,
+    masterLeakScan,
+    evidenceLeakScan,
+    submission,
+  });
+}
+
+function finalizeRun(input: {
+  checks: ProtocolCheck[];
+  inputDir: string;
+  outputDir: string;
+  matchedHmacStrategy: HmacStrategy | "none";
+  masterLeakScan: { ok: boolean; findings: Array<{ location: string; pattern: string }> };
+  evidenceLeakScan: { ok: boolean; findings: Array<{ location: string; pattern: string }> };
+  submission?: SubmissionResult;
+}): boolean {
+  const overallPass = input.checks.every((check) => check.passed);
+
+  const report: ProtocolReport = {
+    status: overallPass ? "PASS" : "FAIL",
+    generated_at: new Date().toISOString(),
+    input_dir: input.inputDir,
+    output_dir: input.outputDir,
+    matched_hmac_strategy: input.matchedHmacStrategy,
+    checks: input.checks,
+    leak_scan: {
+      master_ok: input.masterLeakScan.ok,
+      master_findings: input.masterLeakScan.findings,
+      evidence_ok: input.evidenceLeakScan.ok,
+      evidence_findings: input.evidenceLeakScan.findings,
+    },
+    submission: input.submission
+      ? {
+          attempted: input.submission.attempted,
+          ok: input.submission.ok,
+          endpoint: input.submission.endpoint,
+          status: input.submission.status,
+          detail: input.submission.detail,
+        }
+      : undefined,
+  };
+
+  mkdirSync(input.outputDir, { recursive: true });
+  writeFileSync(join(input.outputDir, "protocol_report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
+
+  const byName = new Map(input.checks.map((check) => [check.name, check]));
+  printCheck(byName.get("valet_hmac_verification"), "Valet HMAC verified");
+  printCheck(byName.get("content_hash_computed"), "Canonical content_hash computed");
+  printCheck(byName.get("ed25519_checkpoint_generated"), "Ed25519 checkpoint generated");
+  printCheck(byName.get("offline_verify"), "Offline verify OK");
+
+  console.log(`[INFO] matched_hmac_strategy=${input.matchedHmacStrategy}`);
+  console.log(`[INFO] output=${input.outputDir}`);
+  console.log(`[INFO] protocol_report=${join(input.outputDir, "protocol_report.json")}`);
+
+  return overallPass;
+}
+
+function printCheck(check: ProtocolCheck | undefined, title: string): void {
+  if (!check) {
+    console.log(`[FAIL] ${title}: check missing`);
+    return;
+  }
+  console.log(`${check.passed ? "[PASS]" : "[FAIL]"} ${title}${check.detail ? ` (${check.detail})` : ""}`);
+}
+
+function ensureDirectory(dirPath: string): void {
+  const st = statSync(dirPath, { throwIfNoEntry: false });
+  if (!st || !st.isDirectory()) {
+    throw new Error(`Input path is not a directory: ${dirPath}`);
+  }
+}
+
+function collectSourceFiles(dirPath: string): ValetSourceFile[] {
+  const fileNames = readdirSync(dirPath);
+  return fileNames
+    .filter((fileName) => statSync(join(dirPath, fileName)).isFile())
+    .map((fileName) => {
+      const content = readFileSync(join(dirPath, fileName));
+      return {
+        file: fileName,
+        sha256: createHash("sha256").update(content).digest("hex"),
+      };
+    })
+    .sort((a, b) => a.file.localeCompare(b.file));
+}
+
+function pickReceiptFile(files: ValetSourceFile[]): ValetSourceFile | undefined {
+  const exact = files.find((file) => file.file.toLowerCase() === "receipt.json");
+  if (exact) return exact;
+
+  const candidates = files.filter((file) => /^receipt.*\.json$/i.test(file.file));
+  const nonGenerated = candidates.filter(
+    (file) => !file.file.startsWith("master_receipt") && !file.file.startsWith("ledger_submission")
+  );
+
+  return nonGenerated[0] ?? candidates[0];
+}
+
+function readJsonObject(filePath: string): JsonRecord {
+  const raw = readFileSync(filePath, "utf8");
+  const parsed = JSON.parse(raw) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Expected JSON object in ${filePath}`);
+  }
+  return parsed as JsonRecord;
+}
+
+function readValetSignature(receipt: JsonRecord): string | undefined {
+  const directSignature = asString(receipt.signature);
+  const directHmac = asString(receipt.hmac);
+  const receiptSignature = asString(receipt.receipt_signature);
+  const verification = asRecord(receipt.verification);
+
+  return (
+    directHmac ??
+    (directSignature && (asString(receipt.signature_type)?.toLowerCase().includes("hmac") ?? true)
+      ? directSignature
+      : undefined) ??
+    receiptSignature ??
+    asString(verification?.hmac) ??
+    asString(verification?.signature)
+  );
+}
+
+function stripSignatureFields(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => stripSignatureFields(entry));
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const record = value as JsonRecord;
+  const out: JsonRecord = {};
+
+  for (const [key, val] of Object.entries(record)) {
+    if (
+      key === "signature" ||
+      key === "hmac" ||
+      key === "receipt_signature" ||
+      key === "signature_type"
+    ) {
+      continue;
+    }
+    out[key] = stripSignatureFields(val);
+  }
+
+  return out;
+}
+
+function safeSignatureCompare(actual: string, expected: string): boolean {
+  const normalizedActual = actual.replace(/\s+/g, "").trim();
+  const normalizedExpected = expected.replace(/\s+/g, "").trim();
+
+  const a = Buffer.from(normalizedActual, "utf8");
+  const b = Buffer.from(normalizedExpected, "utf8");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function asRecord(value: unknown): JsonRecord | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as JsonRecord;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function asMessageArray(value: unknown): Array<{ role: string; content: string }> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value
+    .map((entry) => asRecord(entry))
+    .filter((entry): entry is JsonRecord => Boolean(entry))
+    .map((entry) => {
+      const role =
+        asString(entry.role) ?? asString(entry.speaker) ?? asString(entry.author) ?? "assistant";
+      const content =
+        asString(entry.content) ?? asString(entry.text) ?? asString(entry.message) ?? "";
+      return { role, content };
+    })
+    .filter((entry) => entry.content.length > 0);
+
+  return items.length > 0 ? items : undefined;
+}
+
+function extractAssistantText(transcript: JsonRecord): string {
+  const messages = asMessageArray(transcript.messages) ?? [];
+  return messages
+    .filter((message) => message.role.toLowerCase() === "assistant")
+    .map((message) => message.content)
+    .join("\n");
+}
+
+function normalizePem(rawPem: string): string {
+  return rawPem.includes("\\n") ? rawPem.replace(/\\n/g, "\n") : rawPem;
+}
+
+function derivePublicKeyPemFromPrivate(privateKeyPem?: string): string | undefined {
+  if (!privateKeyPem) return undefined;
+  try {
+    const privateKey = createPrivateKey(normalizePem(privateKeyPem));
+    return createPublicKey(privateKey).export({ type: "spki", format: "pem" }).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function flipHexChar(input: string): string {
+  if (input.length === 0) return "0";
+  const first = input[0].toLowerCase();
+  const replacement = first === "0" ? "1" : "0";
+  return replacement + input.slice(1);
+}
+
+function assertMasterHasNoPlaintext(masterReceipt: MasterReceipt): { ok: boolean; reason: string } {
+  const disallowedKeys = new Set([
+    "transcript",
+    "messages",
+    "prompt",
+    "completion",
+    "response",
+    "output_text",
+    "raw_response",
+  ]);
+
+  const stack: unknown[] = [masterReceipt as unknown];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current || typeof current !== "object") continue;
+    if (Array.isArray(current)) {
+      for (const item of current) stack.push(item);
+      continue;
+    }
+
+    for (const [key, value] of Object.entries(current as JsonRecord)) {
+      if (disallowedKeys.has(key)) {
+        return { ok: false, reason: `Disallowed plaintext key found in master receipt: ${key}` };
+      }
+      stack.push(value);
+    }
+  }
+
+  return { ok: true, reason: "OK" };
+}
+
+async function maybeSubmitToLedger(
+  masterReceipt: MasterReceipt,
+  evidencePack: EvidencePack
+): Promise<SubmissionResult> {
+  const baseUrl = process.env.HALO_LEDGER_URL;
+  if (!baseUrl) {
+    return {
+      attempted: false,
+      ok: false,
+      endpoint: "",
+      detail: "Ledger submission skipped (HALO_LEDGER_URL not configured).",
+    };
+  }
+
+  const endpointPath = process.env.HALO_INGEST_ENDPOINT ?? "/api/receipts/ingest";
+  const endpoint = new URL(endpointPath, baseUrl).toString();
+
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (process.env.HALO_API_TOKEN) {
+    headers.authorization = `Bearer ${process.env.HALO_API_TOKEN}`;
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ master_receipt: masterReceipt, evidence_pack: evidencePack }),
+    });
+
+    const responseText = await response.text();
+    const responseBody = tryParseJson(responseText);
+
+    return {
+      attempted: true,
+      ok: response.ok,
+      endpoint,
+      status: response.status,
+      responseBody,
+      detail: response.ok
+        ? `Ledger submission succeeded (${response.status}).`
+        : `Ledger submission failed (${response.status}).`,
+    };
+  } catch (error) {
+    return {
+      attempted: true,
+      ok: false,
+      endpoint,
+      detail: `Ledger submission threw error: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+function tryParseJson(input: string): unknown {
+  try {
+    return JSON.parse(input) as unknown;
+  } catch {
+    return { raw: input };
+  }
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  runIngestValet(process.argv)
+    .then((ok) => {
+      process.exit(ok ? 0 : 1);
+    })
+    .catch((error: unknown) => {
+      console.error("[ingest-valet] ERROR:", error instanceof Error ? error.message : error);
+      process.exit(1);
+    });
+}

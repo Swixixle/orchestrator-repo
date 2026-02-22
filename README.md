@@ -127,6 +127,31 @@ Writes `out/verify_report.md`. Exits 0 on PASS, 1 on FAIL.
 
 ---
 
+## Valet Bridge (`ingest-valet`)
+
+Convert a Valet `dist/<slug>/` bundle into canonical HALO checkpoint artifacts:
+
+```sh
+VALET_RECEIPT_HMAC_KEY=... \
+RECEIPT_SIGNING_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----" \
+npm run ingest-valet -- dist/<slug>/
+```
+
+Writes to `dist/<slug>/halo_checkpoint/`:
+
+- `master_receipt.json` (hash-only, Ed25519-signed)
+- `evidence_pack.json` (sensitive transcript + ELI assertions)
+- `protocol_report.json` (PASS/FAIL checks + matched HMAC strategy)
+- `ledger_submission.json` (only when `HALO_LEDGER_URL` is configured)
+
+Optional ledger submission flags:
+
+- `HALO_LEDGER_URL`
+- `HALO_INGEST_ENDPOINT` (default: `/api/receipts/ingest`)
+- `HALO_API_TOKEN` (optional bearer token)
+
+---
+
 ## Evidence-Led UI (HALO Evidence Inspector)
 
 Run a provenance-first local inspector for:
