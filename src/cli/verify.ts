@@ -21,6 +21,12 @@ import { verifyHaloReceiptAdapter } from "../adapters/haloReceiptsAdapter.js";
 import { validateLedgerSemantics } from "../adapters/eliAdapter.js";
 import { scanForLeaks } from "../utils/leakScan.js";
 import type { Artifact } from "../types/artifact.js";
+import { verifyCheckpointOffline } from "./ingestValet.js";
+
+interface CheckpointBundle {
+  master_receipt: Record<string, unknown>;
+  evidence_pack: Record<string, unknown>;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -57,6 +63,20 @@ function loadArtifact(path: string): Artifact {
   } catch (err) {
     throw new Error(`Artifact is not valid JSON: ${path}\n  ${String(err)}`);
   }
+}
+
+function isCheckpointBundle(value: unknown): value is CheckpointBundle {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const root = value as Record<string, unknown>;
+  return Boolean(
+    root.master_receipt &&
+      typeof root.master_receipt === "object" &&
+      root.evidence_pack &&
+      typeof root.evidence_pack === "object"
+  );
 }
 
 interface CheckResult {
@@ -97,7 +117,13 @@ export async function runVerify(argv: string[]): Promise<boolean> {
   const { artifactPath, outDir } = parseArgs(argv);
 
   console.log(`[verify] Loading artifact: ${artifactPath}`);
-  const artifact = loadArtifact(artifactPath);
+  const artifact = loadArtifact(artifactPath) as unknown;
+
+  if (isCheckpointBundle(artifact)) {
+    return runCheckpointVerify(artifactPath, artifact, outDir);
+  }
+
+  const orchestratorArtifact = artifact as Artifact;
 
   const checks: CheckResult[] = [];
 
@@ -105,8 +131,8 @@ export async function runVerify(argv: string[]): Promise<boolean> {
 
   try {
     const verifyResult = await verifyHaloReceiptAdapter(
-      artifact.transcript,
-      artifact.haloReceipt
+      orchestratorArtifact.transcript,
+      orchestratorArtifact.haloReceipt
     );
     checks.push({
       name: "HALO receipt verification",
@@ -129,10 +155,10 @@ export async function runVerify(argv: string[]): Promise<boolean> {
     // Re-derive source text from the ledger claims' spans, or use the
     // first claim's text as a proxy. The validator works on the claim
     // span data; re-running it over the stored ledger + reconstructed text.
-    const claims = artifact.eliLedger?.claims ?? [];
+    const claims = orchestratorArtifact.eliLedger?.claims ?? [];
     // Reconstruct approximate source from claim texts
     const reconstructedSource = claims.map((c) => c.text).join(" ");
-    const revalidation = validateLedgerSemantics(artifact.eliLedger, reconstructedSource);
+    const revalidation = validateLedgerSemantics(orchestratorArtifact.eliLedger, reconstructedSource);
     checks.push({
       name: "ELI semantic validation",
       passed: revalidation.ok,
@@ -152,9 +178,9 @@ export async function runVerify(argv: string[]): Promise<boolean> {
 
   const leakScan = scanForLeaks(
     [
-      { field: "transcript", value: artifact.transcript },
-      { field: "haloReceipt", value: artifact.haloReceipt },
-      { field: "provenance", value: artifact.provenance },
+      { field: "transcript", value: orchestratorArtifact.transcript },
+      { field: "haloReceipt", value: orchestratorArtifact.haloReceipt },
+      { field: "provenance", value: orchestratorArtifact.provenance },
     ],
     [process.env.OPENAI_API_KEY].filter((k): k is string => typeof k === "string")
   );
@@ -177,6 +203,65 @@ export async function runVerify(argv: string[]): Promise<boolean> {
   console.log("\n[verify] Results:");
   for (const c of checks) {
     console.log(`  ${c.passed ? "✅" : "❌"} ${c.name}: ${c.detail}`);
+  }
+  console.log(`\n[verify] Report written to ${outDir}/verify_report.md`);
+  console.log(`[verify] Overall: ${overallPassed ? "✅ PASS" : "❌ FAIL"}`);
+
+  return overallPassed;
+}
+
+function runCheckpointVerify(
+  artifactPath: string,
+  bundle: CheckpointBundle,
+  outDir: string
+): boolean {
+  const checks: CheckResult[] = [];
+
+  const checkpointVerify = verifyCheckpointOffline({
+    masterReceipt: bundle.master_receipt as never,
+    evidencePack: bundle.evidence_pack as never,
+    verifyKeyPem: process.env.RECEIPT_VERIFY_KEY,
+  });
+
+  checks.push({
+    name: "Checkpoint hash/signature verification",
+    passed: checkpointVerify.ok,
+    detail: checkpointVerify.ok ? "content_hash + Ed25519 verified." : checkpointVerify.reason ?? "failed",
+  });
+
+  const assertions = Array.isArray(bundle.evidence_pack.eli_assertions)
+    ? bundle.evidence_pack.eli_assertions
+    : [];
+  checks.push({
+    name: "ELI assertions present",
+    passed: assertions.length > 0,
+    detail: `assertion count: ${assertions.length}`,
+  });
+
+  const leakScan = scanForLeaks(
+    [
+      { field: "master_receipt", value: bundle.master_receipt },
+      { field: "evidence_pack", value: bundle.evidence_pack },
+    ],
+    [process.env.OPENAI_API_KEY].filter((k): k is string => typeof k === "string")
+  );
+  checks.push({
+    name: "Credential leak scan",
+    passed: leakScan.ok,
+    detail: leakScan.ok
+      ? "No credential patterns found."
+      : `Findings: ${leakScan.findings.map((f) => `${f.location}: ${f.pattern}`).join("; ")}`,
+  });
+
+  const overallPassed = checks.every((check) => check.passed);
+  const report = buildVerifyReport(artifactPath, checks, overallPassed);
+
+  mkdirSync(resolve(outDir), { recursive: true });
+  writeFileSync(resolve(outDir, "verify_report.md"), report, "utf8");
+
+  console.log("\n[verify] Results:");
+  for (const check of checks) {
+    console.log(`  ${check.passed ? "✅" : "❌"} ${check.name}: ${check.detail}`);
   }
   console.log(`\n[verify] Report written to ${outDir}/verify_report.md`);
   console.log(`[verify] Overall: ${overallPassed ? "✅ PASS" : "❌ FAIL"}`);

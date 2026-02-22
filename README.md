@@ -28,6 +28,22 @@ deterministic and free of live-network calls, costs, and model nondeterminism.
 
 ---
 
+## Quick Start (Recommended)
+
+```sh
+./scripts/setup.sh
+```
+
+This installs dependencies, installs/builds pinned `halo-receipts`, runs deterministic tests, runs UI smoke, and validates sample verification.
+
+Runbooks:
+
+- `docs/onboarding.md` (Zero → Verified in ~30 minutes)
+- `docs/providers.md` (OpenAI / Anthropic / Gemini status and commands)
+- `docs/evidence-inspector-production.md` (production hosting)
+
+---
+
 ## Project structure
 
 ```
@@ -265,19 +281,7 @@ RUN_E2E=1 OPENAI_API_KEY=sk-... npm run test:e2e
 | `RUN_E2E`           | ✅ Yes   | Must be `1` to enable the E2E suite.                               |
 
 > **Note:** E2E tests require the `halo-receipts` package to be installed and built.
-> It is **not** a listed dependency and must be installed manually before running E2E:
->
-> ```sh
-> # 1. Install the package
-> npm install --no-save github:Swixixle/HALO-RECEIPTS#f58fcace72640689ecc5d0110feafbb08a3424d9
->
-> # 2. Build the package entry point (dist/index.js)
-> cd node_modules/halo-receipts && npm install && node_modules/.bin/tsx -e "
->   import { build } from 'esbuild';
->   await build({ entryPoints: ['index.ts'], platform: 'node', bundle: true,
->     format: 'esm', outfile: 'dist/index.js', external: ['crypto'] });
-> " && cd ../..
-> ```
+> Use `./scripts/setup.sh` to automate installation/build of pinned `halo-receipts` and all smoke checks.
 
 #### Optional environment variables (E2E)
 

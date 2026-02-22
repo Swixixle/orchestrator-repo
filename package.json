@@ -4,6 +4,8 @@
   "description": "Cross-system integration harness: HALO receipt generation + ELI tagging + semantic validation",
   "type": "module",
   "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "RUN_E2E=1 vitest run --reporter=verbose",

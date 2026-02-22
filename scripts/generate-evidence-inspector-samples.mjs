@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
+const DOMAIN_PREFIX = "HALO_MASTER_RECEIPT_V1|";
+
 function canonicalize(value) {
   if (value === null) return "null";
   if (typeof value === "string") return JSON.stringify(value);
@@ -37,25 +39,26 @@ const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
 const publicPem = publicKey.export({ type: "spki", format: "pem" }).toString();
 
 const signedEnvelopeObj = {
+  receipt_version: "halo.master.v1",
+  receipt_id: receiptId,
   content_hash: contentHashValid,
+  signature_scheme: "ed25519",
+};
+const signed_payload = `${DOMAIN_PREFIX}${canonicalize(signedEnvelopeObj)}`;
+const signature = crypto.sign(null, Buffer.from(signed_payload, "utf8"), privateKey).toString("base64");
+
+const masterValid = {
+  receipt_version: "halo.master.v1",
+  receipt_id: receiptId,
+  content_hash: contentHashValid,
+  signature_scheme: "ed25519",
+  signature,
+  signed_payload,
   metadata: {
     created_at: "2026-02-22T00:00:00.000Z",
     public_key: publicPem,
     purpose: "sample-artifact",
   },
-  receipt_id: receiptId,
-  receipt_version: "1.0.0",
-};
-const signed_payload = canonicalize(signedEnvelopeObj);
-const signature = crypto.sign(null, Buffer.from(signed_payload, "utf8"), privateKey).toString("base64");
-
-const masterValid = {
-  receipt_version: "1.0.0",
-  receipt_id: receiptId,
-  content_hash: contentHashValid,
-  signature,
-  signed_payload,
-  metadata: signedEnvelopeObj.metadata,
   verification: {
     status: "verified",
     note: "artifact-provided status only; UI should treat as DERIVED (artifact)",
