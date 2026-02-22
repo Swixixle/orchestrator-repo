@@ -27,8 +27,14 @@
  *   5. Semantic validation returns ok=true (no ERROR issues)
  *   6. At least one claim of type FACT or INFERENCE
  *   7. Transcript object does not contain authorization credentials
+ *
+ * When RUN_E2E=1, after all invariants pass, writes:
+ *   out/e2e-artifact.json  – full machine-readable truth object
+ *   out/e2e-report.md      – human-readable summary
  */
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   invokeLLMWithHaloAdapter,
   verifyHaloReceiptAdapter,
@@ -40,6 +46,8 @@ import {
   type EliLedger,
   type EliValidationResult,
 } from "../../src/adapters/eliAdapter.js";
+import { scanForLeaks } from "../../src/utils/leakScan.js";
+import type { Artifact } from "../../src/types/artifact.js";
 
 // ── Guard: skip the entire suite unless RUN_E2E=1 ───────────────────────────
 const RUN_E2E = process.env.RUN_E2E === "1";
@@ -149,6 +157,90 @@ describe.skipIf(!RUN_E2E)("E2E – full pipeline with real LLM (RUN_E2E=1 requir
 
     expect(serialised).not.toContain("Bearer ");
     expect(serialised).not.toContain(process.env.OPENAI_API_KEY ?? "SENTINEL");
+  });
+
+  // ── 6. Artifact file output ───────────────────────────────────────────────
+
+  afterAll(() => {
+    // Write artifact files after all invariants have been asserted.
+    // Only runs when the suite itself ran (RUN_E2E=1) and adapterResult is set.
+    if (!adapterResult) return;
+
+    try {
+      const provenance = adapterResult.provenance as Record<string, unknown>;
+      const leakScan = scanForLeaks(
+        [
+          { field: "transcript", value: adapterResult.transcript },
+          { field: "haloReceipt", value: adapterResult.haloReceipt },
+          { field: "provenance", value: adapterResult.provenance },
+        ],
+        [process.env.OPENAI_API_KEY].filter((k): k is string => typeof k === "string")
+      );
+
+      const artifact: Artifact = {
+        meta: {
+          timestamp: new Date().toISOString(),
+          orchestratorVersion: "1.0.0",
+          nodeVersion: process.version,
+        },
+        llm: {
+          provider: "openai",
+          endpoint,
+          model,
+          requestParams: { model, endpoint },
+        },
+        transcript: adapterResult.transcript,
+        haloReceipt: adapterResult.haloReceipt,
+        provenance: {
+          provenanceHash:
+            typeof provenance.provenance_hash === "string"
+              ? provenance.provenance_hash
+              : undefined,
+          raw: provenance,
+        },
+        eliLedger: ledger,
+        eliValidation: validation,
+        security: { credentialLeakScan: leakScan },
+      };
+
+      const factOrInference = ledger.claims.filter(
+        (c) => c.type === "FACT" || c.type === "INFERENCE"
+      ).length;
+
+      const report = `# E2E Test Artifact Report
+
+## Run metadata
+- **Timestamp:** ${artifact.meta.timestamp}
+- **Node version:** ${artifact.meta.nodeVersion}
+
+## LLM call
+- **Endpoint:** ${endpoint}
+- **Model:** ${model}
+
+## Prompt
+\`\`\`
+${PROMPT}
+\`\`\`
+
+## ELI Ledger summary
+- **Claims:** ${ledger.claims.length}
+- **FACT / INFERENCE:** ${factOrInference}
+
+## Semantic validation
+${validation.ok ? "✅ PASS" : "❌ FAIL"}
+
+## Credential leak scan
+${leakScan.ok ? "✅ PASS (no credential patterns found)" : "❌ FAIL"}
+`;
+
+      const outDir = resolve("out");
+      mkdirSync(outDir, { recursive: true });
+      writeFileSync(resolve(outDir, "e2e-artifact.json"), JSON.stringify(artifact, null, 2), "utf8");
+      writeFileSync(resolve(outDir, "e2e-report.md"), report, "utf8");
+      console.log("\n[e2e] Artifacts written to out/e2e-artifact.json and out/e2e-report.md");
+    } catch (err) {
+      console.warn("[e2e] Warning: could not write artifact files:", err);
+    }
   });
 });
 

@@ -6,7 +6,9 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "RUN_E2E=1 vitest run --reporter=verbose"
+    "test:e2e": "RUN_E2E=1 vitest run --reporter=verbose",
+    "demo": "tsx src/cli/run.ts",
+    "verify": "tsx src/cli/verify.ts"
   },
   "repository": {
     "type": "git",
@@ -21,6 +23,7 @@
   "homepage": "https://github.com/Swixixle/orchestrator-repo#readme",
   "devDependencies": {
     "@types/node": "^25.3.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }
