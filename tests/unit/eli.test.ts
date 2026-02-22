@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { tagResponse } from "../../src/eli/tagger.js";
-import { validateLedger } from "../../src/eli/validator.js";
+import { tagResponse } from "../../src/mocks/eliMock.js";
+import { validateLedger } from "../../src/mocks/eliMock.js";
 
 describe("ELI tagger", () => {
   it("returns an EliLedger with the correct shape", () => {

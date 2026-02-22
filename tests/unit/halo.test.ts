@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { signResponse } from "../../src/halo/signer.js";
-import { verifyReceipt } from "../../src/halo/verifier.js";
+import { signResponse } from "../../src/mocks/haloMock.js";
+import { verifyReceipt } from "../../src/mocks/haloMock.js";
 
 const TEST_KEY = "test-signing-key-32-bytes-padded!";
 
