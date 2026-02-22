@@ -418,3 +418,16 @@ requiring `OPENAI_API_KEY`.
 The GitHub Actions workflow (`ci.yml`) runs **unit tests only** on every push and pull request. No API keys are required or used.
 
 A separate **manual** workflow (`e2e.yml`) is available for running the E2E suite on-demand via `workflow_dispatch`. It is never triggered automatically.
+
+## Testing
+
+Unit and integration tests:
+  npx vitest run
+
+E2E tests (requires live OpenAI key):
+  RUN_E2E=1 OPENAI_API_KEY=your-key npx vitest run
+
+Note:
+- E2E tests are optional and opt-in.
+- CI does not require live API keys.
+- HMAC signatures are computed dynamically in tests to prevent drift.

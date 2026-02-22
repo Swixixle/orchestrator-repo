@@ -11,7 +11,6 @@
  */
 import { createHmac, createHash, randomUUID } from "node:crypto";
 
-export interface HaloReceipt {
   /** Unique receipt identifier */
   id: string;
   /** ISO-8601 timestamp of signing */
@@ -22,6 +21,8 @@ export interface HaloReceipt {
   signature: string;
   /** The original upstream response that was signed */
   response: string;
+  /** Receipt schema version */
+  schema_version: string;
 }
 
 /**
@@ -31,13 +32,13 @@ export interface HaloReceipt {
  * @param signingKey Hex-encoded 32-byte HMAC secret.  Falls back to the
  *                   `HALO_SIGNING_KEY` environment variable when omitted.
  */
-export function signResponse(response: string, signingKey?: string): HaloReceipt {
   const key = signingKey ?? process.env.HALO_SIGNING_KEY ?? "test-signing-key-32-bytes-padded!";
   const id = randomUUID();
   const timestamp = new Date().toISOString();
   const responseHash = createHash("sha256").update(response, "utf8").digest("hex");
   const payload = `${id}|${timestamp}|${responseHash}`;
   const signature = createHmac("sha256", key).update(payload, "utf8").digest("hex");
+  const schema_version = "1.0.0";
 
-  return { id, timestamp, responseHash, signature, response };
+  return { id, timestamp, responseHash, signature, response, schema_version };
 }

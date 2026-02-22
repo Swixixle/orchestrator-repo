@@ -25,7 +25,9 @@
     "console:start": "node dist/server/haloConsoleServer.js",
     "console:prod": "npm run console:build && npm run console:start",
     "console:help": "npm run console:build && node dist/cli/ingestValet.js --help",
-    "replit:start": "npm run console:dev"
+    "replit:start": "npm run console:dev",
+    "contract:test": "vitest run test/contracts",
+    "db:migrate": "drizzle-kit push"
   },
   "repository": {
     "type": "git",
@@ -39,17 +41,21 @@
   },
   "homepage": "https://github.com/Swixixle/orchestrator-repo#readme",
   "dependencies": {
+    "drizzle-kit": "^0.31.9",
+    "drizzle-orm": "^0.45.1",
     "express": "^4.21.2",
-    "pg": "^8.13.3",
+    "express-rate-limit": "^8.2.1",
+    "pg": "^8.18.0",
+    "pino": "^10.3.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
-    "@types/react": "^19.1.12",
-    "@types/react-dom": "^19.1.9",
     "@types/node": "^25.3.0",
     "@types/pg": "^8.11.11",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.4",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",

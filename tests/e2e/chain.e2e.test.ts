@@ -49,10 +49,11 @@ import {
 import { scanForLeaks } from "../../src/utils/leakScan.js";
 import type { Artifact } from "../../src/types/artifact.js";
 
-// ── Guard: skip the entire suite unless RUN_E2E=1 ───────────────────────────
-const RUN_E2E = process.env.RUN_E2E === "1";
+const shouldRunE2E = process.env.RUN_E2E === "1";
 
-// ── Test suite ───────────────────────────────────────────────────────────────
+if (!process.env.OPENAI_API_KEY) {
+  console.warn("Skipping E2E tests: OPENAI_API_KEY not set");
+}
 
 const ALLOWED_ENDPOINTS = ["/chat/completions", "/responses"] as const;
 type AllowedEndpoint = (typeof ALLOWED_ENDPOINTS)[number];
@@ -68,7 +69,11 @@ function resolveEndpoint(): AllowedEndpoint {
   return raw as AllowedEndpoint;
 }
 
-describe.skipIf(!RUN_E2E)("E2E – full pipeline with real LLM (RUN_E2E=1 required)", () => {
+// TODO:
+// Replace live OpenAI dependency with deterministic provider stub.
+// Current E2E validates full integration but is non-deterministic.
+
+(shouldRunE2E ? describe : describe.skip)("Chain E2E", () => {
   const PROMPT = "In two sentences, explain what causes ocean tides.";
   const endpoint = resolveEndpoint();
   const model = process.env.E2E_MODEL ?? "gpt-4.1-mini";

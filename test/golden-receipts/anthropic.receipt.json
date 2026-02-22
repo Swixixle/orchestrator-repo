@@ -1,0 +1,8 @@
+{
+  "provider": "anthropic",
+  "prompt": "Return the word HALO exactly.",
+  "response": "HALO",
+  "signature_type": "ed25519",
+  "signature": "<deterministic-signature>",
+  "schema_version": "1.0.0"
+}

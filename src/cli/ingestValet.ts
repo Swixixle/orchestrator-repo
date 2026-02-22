@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-export function normalizeValetToTranscript(receipt: Record<string, unknown>) {
-  // ...existing code...
-  return {
-    messages: [
-      { role: "user", content: receipt.prompt },
-      { role: "assistant", content: receipt.completion }
-    ],
-    model: receipt.model,
-    created_at: receipt.created_at
-  };
-}
 
 /**
  * Exported for test harness HMAC verification. Builds canonical transcript for HMAC.
@@ -34,6 +23,7 @@ import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { scanForLeaks } from "../utils/leakScan.js";
 import { tagResponseToLedger } from "../adapters/eliAdapter.js";
+import logger, { logRequest } from "../../lib/logger.js";
 
 const DOMAIN_PREFIX = "HALO_MASTER_RECEIPT_V1|";
 
@@ -111,7 +101,6 @@ interface ProtocolReport {
 }
 
 function printUsageAndExit(): never {
-  console.log(`\nUsage: ingestValet [--quiet|-q] <valet-dist-dir>
 
 Options:
   --quiet, -q    Suppress progress and fail logs (for CI/scripts)
@@ -128,6 +117,8 @@ Environment:
 Example:
   ingestValet --quiet dist/my-valet-run
 `);
+  process.exit(0);
+  logger.info({ msg: "Usage: ingestValet [--quiet|-q] <valet-dist-dir>\n\nOptions:\n  --quiet, -q    Suppress progress and fail logs (for CI/scripts)\n  --help,  -h    Show this usage message\n\nArguments:\n  <valet-dist-dir>  Path to Valet output directory (required)\n\nEnvironment:\n  VALET_RECEIPT_HMAC_KEY   Required for HMAC verification\n  RECEIPT_SIGNING_KEY      Required for Ed25519 checkpoint\n  RECEIPT_VERIFY_KEY       Optional for offline verify\n\nExample:\n  ingestValet --quiet dist/my-valet-run" });
   process.exit(0);
 }
 
@@ -276,13 +267,13 @@ export function verifyValetHmac(receipt: JsonRecord, hmacKey: string): HmacVerif
       const norm = s.trim().toLowerCase();
       const toHexBytes = (str: string) => Buffer.from(str, "utf8").toString("hex");
       const codepoints = Array.from(raw).map((ch) => ch.codePointAt(0)?.toString(16));
-      console.log(`\n[DEBUG] ===== ${label} =====`);
-      console.log(`[DEBUG] raw.length=${raw.length} norm.length=${norm.length}`);
-      console.log(`[DEBUG] raw(JSON)=${JSON.stringify(raw)}`);
-      console.log(`[DEBUG] norm(JSON)=${JSON.stringify(norm)}`);
-      console.log(`[DEBUG] raw_utf8_hex=${toHexBytes(raw)}`);
-      console.log(`[DEBUG] norm_utf8_hex=${toHexBytes(norm)}`);
-      console.log(`[DEBUG] codepoints(hex)=${codepoints.join(" ")}`);
+      logger.debug({ msg: `[DEBUG] ===== ${label} =====` });
+      logger.debug({ msg: `[DEBUG] raw.length=${raw.length} norm.length=${norm.length}` });
+      logger.debug({ msg: `[DEBUG] raw(JSON)=${JSON.stringify(raw)}` });
+      logger.debug({ msg: `[DEBUG] norm(JSON)=${JSON.stringify(norm)}` });
+      logger.debug({ msg: `[DEBUG] raw_utf8_hex=${toHexBytes(raw)}` });
+      logger.debug({ msg: `[DEBUG] norm_utf8_hex=${toHexBytes(norm)}` });
+      logger.debug({ msg: `[DEBUG] codepoints(hex)=${codepoints.join(" ")}` });
     }
 
     function firstDiffIndex(a: string, b: string) {
@@ -298,9 +289,9 @@ export function verifyValetHmac(receipt: JsonRecord, hmacKey: string): HmacVerif
   const extractedSignature = readValetSignature(receipt);
   const signatureType = asString(receipt.signature_type);
   if (process.env.DEBUG_VALET_HMAC === "1") {
-    console.log("[DEBUG] extracted_signature:", extractedSignature);
-    console.log("[DEBUG] signature_type:", signatureType);
-    console.log("[DEBUG] extracted_signature_length:", extractedSignature?.length);
+    logger.debug({ msg: "[DEBUG] extracted_signature", extractedSignature });
+    logger.debug({ msg: "[DEBUG] signature_type", signatureType });
+    logger.debug({ msg: "[DEBUG] extracted_signature_length", length: extractedSignature?.length });
   }
   if (!extractedSignature) {
     return { ok: false, strategy: "none", reason: "No Valet HMAC signature field found." };
@@ -327,31 +318,31 @@ export function verifyValetHmac(receipt: JsonRecord, hmacKey: string): HmacVerif
     const payloadVariantName = candidate.strategy;
     const computedHmac = createHmac("sha256", hmacKey).update(candidate.payload, "utf8").digest("hex");
     if (process.env.DEBUG_VALET_HMAC === "1") {
-      console.log("[DEBUG] candidate_payload:", payloadVariantName);
-      console.log("[DEBUG] canonical_transcript:", canonicalTranscript);
-      console.log("[DEBUG] computed_hmac_hex:", computedHmac);
+      logger.debug({ msg: "[DEBUG] candidate_payload", payloadVariantName });
+      logger.debug({ msg: "[DEBUG] canonical_transcript", canonicalTranscript });
+      logger.debug({ msg: "[DEBUG] computed_hmac_hex", computedHmac });
       dumpStringDiagnostics("extracted_signature", extractedSignature);
       dumpStringDiagnostics("computed_hmac_hex", computedHmac);
       const i = firstDiffIndex(extractedSignature, computedHmac);
-      console.log("[DEBUG] first_diff_index:", i);
+      logger.debug({ msg: "[DEBUG] first_diff_index", i });
       if (i !== -1) {
         const A = extractedSignature.trim().toLowerCase();
         const B = computedHmac.trim().toLowerCase();
-        console.log("[DEBUG] A[i],B[i]:", A[i], B[i]);
-        console.log("[DEBUG] A_slice:", JSON.stringify(A.slice(Math.max(0,i-8), i+8)));
-        console.log("[DEBUG] B_slice:", JSON.stringify(B.slice(Math.max(0,i-8), i+8)));
+        logger.debug({ msg: "[DEBUG] A[i],B[i]", A: A[i], B: B[i] });
+        logger.debug({ msg: "[DEBUG] A_slice", slice: JSON.stringify(A.slice(Math.max(0,i-8), i+8)) });
+        logger.debug({ msg: "[DEBUG] B_slice", slice: JSON.stringify(B.slice(Math.max(0,i-8), i+8)) });
       }
       // Also log transcript bytes
       const transcriptNorm = candidate.payload;
-      console.log("[DEBUG] transcript.length:", transcriptNorm.length);
-      console.log("[DEBUG] transcript(JSON):", JSON.stringify(transcriptNorm));
-      console.log("[DEBUG] transcript_utf8_hex:", Buffer.from(transcriptNorm, "utf8").toString("hex"));
+      logger.debug({ msg: "[DEBUG] transcript.length", length: transcriptNorm.length });
+      logger.debug({ msg: "[DEBUG] transcript(JSON)", transcript: JSON.stringify(transcriptNorm) });
+      logger.debug({ msg: "[DEBUG] transcript_utf8_hex", hex: Buffer.from(transcriptNorm, "utf8").toString("hex") });
     }
     const normalize = (s: string) => s.trim().toLowerCase();
     if (normalize(computedHmac) === normalize(extractedSignature)) {
       matchedStrategy = candidate.strategy;
       if (process.env.DEBUG_VALET_HMAC === "1") {
-        console.log("[DEBUG] matched_strategy:", matchedStrategy);
+        logger.debug({ msg: "[DEBUG] matched_strategy", matchedStrategy });
       }
       break;
     }
@@ -716,9 +707,9 @@ function finalizeRun(input: {
     printCheck(byName.get("ed25519_checkpoint_generated"), "Ed25519 checkpoint generated");
     printCheck(byName.get("offline_verify"), "Offline verify OK");
 
-    console.log(`[INFO] matched_hmac_strategy=${input.matchedHmacStrategy}`);
-    console.log(`[INFO] output=${input.outputDir}`);
-    console.log(`[INFO] protocol_report=${join(input.outputDir, "protocol_report.json")}`);
+    logger.info({ msg: "matched_hmac_strategy", matchedHmacStrategy: input.matchedHmacStrategy });
+    logger.info({ msg: "output", outputDir: input.outputDir });
+    logger.info({ msg: "protocol_report", protocolReport: join(input.outputDir, "protocol_report.json") });
   }
 
   return overallPass;
@@ -726,10 +717,10 @@ function finalizeRun(input: {
 
 function printCheck(check: ProtocolCheck | undefined, title: string): void {
   if (!check) {
-    console.log(`[FAIL] ${title}: check missing`);
+    logger.error({ msg: `[FAIL] ${title}: check missing` });
     return;
   }
-  console.log(`${check.passed ? "[PASS]" : "[FAIL]"} ${title}${check.detail ? ` (${check.detail})` : ""}`);
+  logger.info({ msg: `${check.passed ? "[PASS]" : "[FAIL]"} ${title}${check.detail ? ` (${check.detail})` : ""}` });
 }
 
 function ensureDirectory(dirPath: string): void {
@@ -983,13 +974,13 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   runIngestValet(process.argv)
     .then((ok) => {
       // Deep exit diagnostics
-      console.log("[DEBUG] exiting_with_code:", ok ? 0 : 1);
-      console.log("[DEBUG] verification_success:", ok);
+      logger.debug({ msg: "exiting_with_code", code: ok ? 0 : 1 });
+      logger.debug({ msg: "verification_success", ok });
       process.exit(ok ? 0 : 1);
     })
     .catch((error: unknown) => {
-      console.error("[ingest-valet] ERROR:", error instanceof Error ? error.message : error);
-      console.log("[DEBUG] exiting_with_code:", 1);
+      logger.error({ msg: "[ingest-valet] ERROR", error: error instanceof Error ? error.message : error });
+      logger.debug({ msg: "exiting_with_code", code: 1 });
       process.exit(1);
     });
 }

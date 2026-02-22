@@ -10,6 +10,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
+import rateLimit from "express-rate-limit";
 import { runPipeline } from "../orchestrator.js";
 import { runVerify } from "../cli/verify.js";
 import { scanForLeaks } from "../utils/leakScan.js";
@@ -24,6 +25,13 @@ const { Client } = require("pg") as typeof import("pg");
 const packageJson = require("../../package.json") as { version?: string };
 
 const app = express();
+
+const apiRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 60, // limit each IP to 60 requests per windowMs
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 const host = process.env.CONSOLE_HOST ?? "0.0.0.0";
 const port = Number(process.env.PORT ?? process.env.CONSOLE_PORT ?? "8080");
 const uiDist = resolve(process.env.CONSOLE_UI_DIST_DIR ?? "ui/dist");
@@ -65,7 +73,7 @@ app.get("/api/health", async (_req: Request, res: Response) => {
   });
 });
 
-app.post("/api/run", async (req: Request, res: Response) => {
+app.post("/api/run", apiRateLimiter, async (req: Request, res: Response) => {
   try {
     const provider = normalizeProvider(req.body?.provider);
     const model = stringOrDefault(req.body?.model, defaultModel(provider));
@@ -167,7 +175,7 @@ app.post("/api/run", async (req: Request, res: Response) => {
   }
 });
 
-app.post("/api/verify", async (req: Request, res: Response) => {
+app.post("/api/verify", apiRateLimiter, async (req: Request, res: Response) => {
   try {
     const artifactPath = resolve(stringOrDefault(req.body?.artifactPath, ""));
     if (!artifactPath || !existsSync(artifactPath)) {

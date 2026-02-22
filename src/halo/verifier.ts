@@ -21,8 +21,15 @@ export interface VerifyResult {
  * @param signingKey Hex-encoded 32-byte HMAC secret.  Falls back to the
  *                   `HALO_SIGNING_KEY` environment variable when omitted.
  */
-export function verifyReceipt(receipt: HaloReceipt, signingKey?: string): VerifyResult {
   const key = signingKey ?? process.env.HALO_SIGNING_KEY ?? "test-signing-key-32-bytes-padded!";
+
+  // 0. Validate schema_version
+  if (!receipt.schema_version || receipt.schema_version !== "1.0.0") {
+    return {
+      valid: false,
+      reason: `unknown or missing schema_version: ${receipt.schema_version ?? "undefined"}`,
+    };
+  }
 
   // 1. Re-derive the response hash and compare
   const expectedHash = createHash("sha256").update(receipt.response, "utf8").digest("hex");

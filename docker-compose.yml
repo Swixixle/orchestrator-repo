@@ -1,0 +1,27 @@
+version: '3.9'
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - POSTGRES_URL=postgres://postgres:postgres@postgres:5432/halo
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - postgres
+  postgres:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: halo
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:
