@@ -42,9 +42,16 @@ src/
     haloReceiptsContract.ts # Integration contract: single import point for halo-receipts
     haloReceiptsAdapter.ts  # E2E adapter: invokeLLMWithHaloAdapter + verifyHaloReceiptAdapter
     eliAdapter.ts           # E2E adapter: tagResponseToLedger + validateLedgerSemantics
+  cli/
+    run.ts         # `npm run demo` – invoke pipeline, write out/ artifacts
+    verify.ts      # `npm run verify` – offline verify a saved artifact
   mocks/
     haloMock.ts    # Re-exports toy signer/verifier for unit tests only
     eliMock.ts     # Re-exports toy tagger/validator for unit tests only
+  types/
+    artifact.ts    # Stable Artifact schema (truth object written by CLI)
+  utils/
+    leakScan.ts    # Credential leak scanner (used by CLI + E2E test)
   orchestrator.ts  # Pipeline entry point (used by unit tests)
 
 tests/
@@ -52,15 +59,95 @@ tests/
     halo.test.ts
     eli.test.ts
     orchestrator.test.ts
+    cli.test.ts                  # leakScan + artifact shape + CLI arg parsing
     adapters.test.ts             # Meta-test: most unit tests must not import adapters
     haloReceipts.contract.test.ts  # Smoke test: validates halo-receipts contract exports
   e2e/             # Live E2E test – opt-in only (RUN_E2E=1)
     chain.e2e.test.ts
+
+out/               # gitignored – all CLI and E2E output files go here
 ```
 
 ---
 
-## Running tests
+## One-line integration
+
+```typescript
+import { runPipeline } from "halo-orchestrator";
+
+const result = await runPipeline(prompt, myLLMInvoker);
+// result.receipt   – HALO tamper-evident receipt
+// result.ledger    – ELI epistemic claim ledger
+// result.validation – semantic discipline validation
+```
+
+---
+
+## Demo
+
+Run the full pipeline against a live LLM and write all artifact files to `out/`:
+
+```sh
+OPENAI_API_KEY=sk-... npm run demo -- --prompt "Explain what causes ocean tides."
+```
+
+Output files written to `out/` (gitignored):
+
+| File | Contents |
+|------|----------|
+| `artifact.json` | Full machine-readable truth object |
+| `receipt.json` | HALO receipt only |
+| `transcript.json` | Signed transcript object only |
+| `ledger.json` | ELI ledger only |
+| `report.md` | Human-readable summary |
+
+Optional flags:
+
+```sh
+npm run demo -- --prompt "..." --model gpt-4o --endpoint /chat/completions --out-dir out
+npm run demo -- --input-file path/to/prompt.txt
+```
+
+---
+
+## Verification
+
+Verify a previously generated artifact offline (no network required after halo-receipts is installed):
+
+```sh
+npm run verify -- --artifact out/artifact.json
+```
+
+Checks performed:
+1. HALO receipt verification (transcript hash via halo-receipts)
+2. ELI semantic validation re-run on stored ledger
+3. Credential leak scan on transcript + receipt + provenance
+
+Writes `out/verify_report.md`. Exits 0 on PASS, 1 on FAIL.
+
+---
+
+## Truth Claims
+
+### What we can prove
+
+| Claim | How |
+|-------|-----|
+| Exact request payload | Captured in `artifact.json → llm.requestParams` |
+| Model identifier provided by API | Stored in `artifact.json → llm.model` |
+| Request parameters (temperature etc.) | Stored in `artifact.json → llm.requestParams` |
+| Full LLM response | Covered by HALO transcript hash |
+| Receipt/transcript integrity | `verifyHaloReceiptAdapter` verifies hash (+ Ed25519 signature when key is configured) |
+| Provenance hash | `artifact.json → provenance.provenanceHash` (if returned by provider) |
+
+### What we cannot prove
+
+| Claim | Why |
+|-------|-----|
+| Underlying model weights | We have no access to provider internals |
+| Internal provider routing | Provider may serve any backend for a given model name |
+
+---
 
 ### Unit tests (always safe, no network, no keys)
 
