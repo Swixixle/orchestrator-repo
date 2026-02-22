@@ -273,6 +273,10 @@ API endpoints:
 - `POST /api/run`
 - `POST /api/verify`
 - `POST /api/leak-scan`
+- `GET /api/runs`
+- `GET /api/runs/:id`
+- `GET /api/runs/:id/artifact`
+- `POST /api/runs/:id/tamper`
 
 Provider requirements for `/api/run`:
 
@@ -293,6 +297,12 @@ curl -sS -X POST "http://127.0.0.1:${PORT:-8080}/api/run" \
 ```
 
 If `CONSOLE_UI_DIST_DIR` exists, non-API routes fall back to `index.html` for SPA serving.
+
+UI routes:
+
+- `GET /console` (Master Console)
+- `GET /` (redirects to `/console`)
+- `GET /inspector` (Evidence Inspector)
 
 ---
 

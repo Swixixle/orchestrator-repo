@@ -4,9 +4,9 @@ This repository can run as a single URL app (UI + API) using the console server.
 
 ## Required Replit Secrets
 
-- `ANTHROPIC_API_KEY`
 - `RECEIPT_SIGNING_KEY`
 - `RECEIPT_VERIFY_KEY`
+- one provider key: `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` or `GEMINI_API_KEY`
 
 ## Optional Replit Secrets
 
@@ -34,7 +34,7 @@ npm run console:prod
 
 - The server binds to `0.0.0.0`.
 - The server respects `PORT` (falls back to `CONSOLE_PORT`, then `8080`).
-- Master Console UI: `/`
+- Master Console UI: `/console` (`/` redirects)
 - Evidence Inspector UI: `/inspector`
 - Health endpoint: `GET /api/health`.
 

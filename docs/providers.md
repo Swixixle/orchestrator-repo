@@ -35,7 +35,7 @@ From `.env.example`:
 - `GEMINI_TEMPERATURE` — optional temperature for Gemini requests
 - `E2E_MODEL` — model used in live demo/E2E (OpenAI path)
 - `E2E_ENDPOINT` — endpoint path (`/chat/completions` or `/responses`)
-- `LLM_PROVIDER` — default provider selection (`openai` or `anthropic`)
+- `LLM_PROVIDER` — default provider selection (`openai`, `anthropic`, or `gemini`)
 - `LLM_BASE_URL` — optional base URL override for OpenAI-compatible endpoints
 
 ## OpenAI (implemented)
@@ -85,7 +85,7 @@ npm run verify -- --artifact out/artifact.json
 
 The existing `test:e2e` suite is OpenAI-oriented. Anthropic live E2E is not yet added as a separate suite.
 
-## Gemini (not implemented yet)
+## Gemini (implemented)
 
 ### Demo
 
