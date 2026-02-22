@@ -83,8 +83,19 @@ RUN_E2E=1 OPENAI_API_KEY=sk-... npm run test:e2e
 | Variable            | Required | Description                                                        |
 |---------------------|----------|--------------------------------------------------------------------|
 | `OPENAI_API_KEY`    | ✅ Yes   | OpenAI (or compatible) API credential. Never stored in receipts.  |
-| `RECEIPT_SIGNING_KEY` | ⚠️ Recommended | HMAC signing key. Falls back to `HALO_SIGNING_KEY`, then a built-in test key. |
+| `RECEIPT_SIGNING_KEY` | ⚠️ Recommended | Signing key for halo-receipts.                            |
+| `RECEIPT_KEY_ID`    | ⚠️ If required | Key identifier for halo-receipts (if the package requires it). |
 | `RUN_E2E`           | ✅ Yes   | Must be `1` to enable the E2E suite.                               |
+
+> **Note:** E2E tests require the `halo-receipts` package to be installed.
+> Because it is an optional dependency (listed under `optionalDependencies`),
+> it is not installed by default.  Install it before running E2E:
+>
+> ```sh
+> npm install github:Swixixle/HALO-RECEIPTS#main
+> ```
+>
+> If the repository is private, a GitHub token with read access is required.
 
 #### Optional environment variables (E2E)
 

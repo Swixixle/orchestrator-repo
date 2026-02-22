@@ -3,7 +3,10 @@ name: E2E (manual)
 # This workflow runs the live E2E test against a real LLM provider.
 # It is NEVER triggered automatically – only via manual workflow_dispatch.
 # Required secrets: OPENAI_API_KEY
-# Optional secrets: RECEIPT_SIGNING_KEY, E2E_MODEL, E2E_ENDPOINT
+# Optional secrets: RECEIPT_SIGNING_KEY, RECEIPT_KEY_ID, E2E_MODEL, E2E_ENDPOINT
+#
+# E2E requires halo-receipts to be installable. If the repository is private,
+# configure a GitHub token with read access (GH_TOKEN / GITHUB_TOKEN scope).
 
 on:
   workflow_dispatch:
@@ -32,8 +35,11 @@ jobs:
           node-version: "22"
           cache: "npm"
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies (including optional halo-receipts)
+        run: npm ci --include=optional
+        env:
+          # Required if halo-receipts is in a private GitHub repository
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
       - name: Run E2E tests
         run: npm run test:e2e
@@ -41,5 +47,6 @@ jobs:
           RUN_E2E: "1"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           RECEIPT_SIGNING_KEY: ${{ secrets.RECEIPT_SIGNING_KEY }}
+          RECEIPT_KEY_ID: ${{ secrets.RECEIPT_KEY_ID }}
           E2E_ENDPOINT: ${{ github.event.inputs.e2e_endpoint }}
           E2E_MODEL: ${{ github.event.inputs.e2e_model }}
