@@ -92,6 +92,7 @@ interface ProtocolReport {
 
 interface IngestArgs {
   inputDir: string;
+  quiet: boolean;
 }
 
 interface RunIngestOptions {
@@ -135,11 +136,22 @@ export function sha256Hex(input: string): string {
 
 export function parseIngestArgs(argv: string[]): IngestArgs {
   const args = argv.slice(2).filter((value) => value.trim().length > 0);
-  const firstPositional = args.find((value) => !value.startsWith("-"));
+  let quiet = false;
+  const positionals: string[] = [];
+
+  for (const arg of args) {
+    if (arg === "--quiet" || arg === "-q") {
+      quiet = true;
+      continue;
+    }
+    positionals.push(arg);
+  }
+
+  const firstPositional = positionals.find((value) => !value.startsWith("-"));
   if (!firstPositional) {
     throw new Error("Provide a Valet dist directory path (e.g. npm run ingest-valet -- dist/<slug>/)");
   }
-  return { inputDir: resolve(firstPositional) };
+  return { inputDir: resolve(firstPositional), quiet };
 }
 
 export function normalizeValetToTranscript(receipt: JsonRecord): JsonRecord {
@@ -345,7 +357,9 @@ export function verifyCheckpointOffline(input: {
 }
 
 export async function runIngestValet(argv: string[], options?: RunIngestOptions): Promise<boolean> {
-  const { inputDir } = parseIngestArgs(argv);
+  const parsed = parseIngestArgs(argv);
+  const quiet = options?.quiet ?? parsed.quiet;
+  const { inputDir } = parsed;
   ensureDirectory(inputDir);
 
   const sourceFiles = collectSourceFiles(inputDir);
@@ -380,7 +394,7 @@ export async function runIngestValet(argv: string[], options?: RunIngestOptions)
       matchedHmacStrategy: "none",
       masterLeakScan: { ok: true, findings: [] },
       evidenceLeakScan: { ok: true, findings: [] },
-      quiet: options?.quiet,
+      quiet,
     });
   }
 
@@ -529,7 +543,7 @@ export async function runIngestValet(argv: string[], options?: RunIngestOptions)
     masterLeakScan,
     evidenceLeakScan,
     submission,
-    quiet: options?.quiet,
+    quiet,
   });
 }
 

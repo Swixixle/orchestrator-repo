@@ -7,6 +7,7 @@ import {
   canonicalJson,
   createMasterReceipt,
   normalizeValetToTranscript,
+  parseIngestArgs,
   runIngestValet,
   sha256Hex,
   verifyCheckpointOffline,
@@ -14,6 +15,18 @@ import {
 } from "../../src/cli/ingestValet.js";
 
 describe("ingestValet bridge helpers", () => {
+  it("parses ingest args with --quiet flag", () => {
+    const parsed = parseIngestArgs(["node", "ingestValet.ts", "--quiet", "dist/sample"]);
+    expect(parsed.quiet).toBe(true);
+    expect(parsed.inputDir.endsWith("dist/sample")).toBe(true);
+  });
+
+  it("parses ingest args with -q flag", () => {
+    const parsed = parseIngestArgs(["node", "ingestValet.ts", "-q", "dist/sample"]);
+    expect(parsed.quiet).toBe(true);
+    expect(parsed.inputDir.endsWith("dist/sample")).toBe(true);
+  });
+
   it("normalizes prompt/completion valet receipt to canonical transcript", () => {
     const transcript = normalizeValetToTranscript({
       prompt: "What causes tides?",
