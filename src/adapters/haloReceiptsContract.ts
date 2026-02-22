@@ -69,13 +69,34 @@ export interface HaloReceiptsContract {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/** Fragments of Node.js / Vite error messages used for module-resolution detection. */
+const ERR_PKG_NOT_FOUND_FRAGMENTS = [
+  "Cannot find package 'halo-receipts'",
+  "Cannot find module 'halo-receipts'",
+] as const;
+
+const ERR_ENTRYPOINT_BROKEN_FRAGMENTS = [
+  "Failed to resolve entry for package", // Vite resolution error
+] as const;
+
 function isModuleNotFound(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
+  const msg = err.message;
+  // Only treat as "not installed" when the PACKAGE itself can't be found.
+  // "Cannot find module '...dist/index.js'" means installed but entry not built.
+  return ERR_PKG_NOT_FOUND_FRAGMENTS.some((f) => msg.includes(f));
+}
+
+function isEntrypointBroken(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message;
+  // Vite resolution error (no alias, Vite can't resolve entry)
+  if (ERR_ENTRYPOINT_BROKEN_FRAGMENTS.some((f) => msg.includes(f))) return true;
+  // Node.js error when the package is installed but dist/ is missing
   const code = (err as NodeJS.ErrnoException).code;
-  if (code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND") return true;
   if (
-    !code &&
-    err.message.includes("Cannot find package 'halo-receipts'")
+    (code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND") &&
+    msg.includes("halo-receipts")
   )
     return true;
   return false;
@@ -128,10 +149,7 @@ export async function loadHaloReceiptsContract(): Promise<HaloReceiptsContract> 
           "  Fix:      npm install github:Swixixle/HALO-RECEIPTS#main"
       );
     }
-    if (
-      err instanceof Error &&
-      err.message.includes("Failed to resolve entry for package")
-    ) {
+    if (isEntrypointBroken(err)) {
       throw new Error(
         "halo-receipts is installed but its entrypoint cannot be resolved.\n" +
           "This indicates a broken installation or incompatible halo-receipts build.\n" +
@@ -144,8 +162,29 @@ export async function loadHaloReceiptsContract(): Promise<HaloReceiptsContract> 
   const invokeLLMWithHaloRaw = contractExport.invokeLLMWithHalo;
   const haloSignTranscriptRaw = contractExport.haloSignTranscript;
   const verifyTranscriptReceiptRaw = contractExport.verifyTranscriptReceipt;
+  const foundContractVersion = contractExport.contractVersion;
 
   // ── Step 2: validate required exports ────────────────────────────────────
+
+  // contractVersion must be a non-empty string
+  if (typeof foundContractVersion !== "string" || !foundContractVersion) {
+    throw new Error(
+      `[halo-receipts contract] HALO_RECEIPTS_CONTRACT.contractVersion is missing or not a string.\n` +
+        `  Found:     ${JSON.stringify(foundContractVersion)}\n` +
+        `  Fix:       Pin halo-receipts to a commit that exports contractVersion as a string.`
+    );
+  }
+
+  // Version pin enforcement: mismatch is a hard fail with a diagnostic
+  if (foundContractVersion !== contractVersion) {
+    throw new Error(
+      `[halo-receipts contract] Contract version mismatch.\n` +
+        `  Expected:  ${contractVersion}\n` +
+        `  Found:     ${foundContractVersion}\n` +
+        `  Fix:       Set HALO_RECEIPTS_CONTRACT_VERSION=${foundContractVersion} to accept the installed version,\n` +
+        `             or pin halo-receipts to a commit that exports contractVersion "${contractVersion}".`
+    );
+  }
 
   const required: [string, unknown][] = [
     ["invokeLLMWithHalo", invokeLLMWithHaloRaw],
@@ -218,7 +257,7 @@ export async function loadHaloReceiptsContract(): Promise<HaloReceiptsContract> 
     return verifyTranscriptReceiptFn(transcript, haloReceipt as HaloTranscriptReceipt);
   };
 
-  cached = { invokeLLMWithHalo, verifyTranscriptReceipt, contractVersion };
+  cached = { invokeLLMWithHalo, verifyTranscriptReceipt, contractVersion: foundContractVersion };
   return cached;
 }
 
