@@ -75,12 +75,11 @@ function isModuleNotFound(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const code = (err as NodeJS.ErrnoException).code;
   if (code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND") return true;
-  // Vite throws a plain Error (no code) when the package exists in node_modules
-  // but has no main/exports entry point yet.  Treat it the same as "not installed"
-  // so the smoke test skips gracefully until the upstream package ships dist JS.
-  // NOTE: This substring check targets Vite 7 error messages.  If Vite changes
-  // its wording, update this guard accordingly.
-  if (err.message.includes("Failed to resolve entry for package")) return true;
+  if (
+    !code &&
+    err.message.includes("Cannot find package 'halo-receipts'")
+  )
+    return true;
   return false;
 }
 
@@ -111,12 +110,7 @@ export async function loadHaloReceiptsContract(): Promise<HaloReceiptsContract> 
 
   try {
     // Indirect specifier: prevents Vite's import-analysis plugin from attempting
-    // to statically resolve "halo-receipts" at transform time.  When the package
-    // is not installed (optional dep) or has no entry point yet (PREREQ: HALO-RECEIPTS
-    // must ship dist JS and update package.json main/exports), Vite 7 throws
-    // "Failed to resolve entry for package" for static string-literal imports even
-    // inside dynamic import().  Using a variable bypasses that static analysis and
-    // lets the runtime throw a catchable MODULE_NOT_FOUND instead.
+    // to statically resolve "halo-receipts" at transform time.
     const specifier = "halo-receipts";
     const m = await import(/* @vite-ignore */ specifier);
     const raw = (m as Record<string, unknown>).HALO_RECEIPTS_CONTRACT;
@@ -134,6 +128,16 @@ export async function loadHaloReceiptsContract(): Promise<HaloReceiptsContract> 
           "  Loaded:   (not found)\n" +
           "  Path:     halo-receipts (root)\n" +
           "  Fix:      npm install github:Swixixle/HALO-RECEIPTS#main"
+      );
+    }
+    if (
+      err instanceof Error &&
+      err.message.includes("Failed to resolve entry for package")
+    ) {
+      throw new Error(
+        "halo-receipts is installed but its entrypoint cannot be resolved.\n" +
+          "This indicates a broken installation or incompatible halo-receipts build.\n" +
+          "Ensure halo-receipts has dist/ and package.json exports/main/types, then reinstall."
       );
     }
     throw err;
