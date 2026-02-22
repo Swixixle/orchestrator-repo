@@ -1,0 +1,27 @@
+{
+  "name": "halo-orchestrator",
+  "version": "1.0.0",
+  "description": "Cross-system integration harness: HALO receipt generation + ELI tagging + semantic validation",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "RUN_E2E=1 vitest run --reporter=verbose"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Swixixle/orchestrator-repo.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Swixixle/orchestrator-repo/issues"
+  },
+  "homepage": "https://github.com/Swixixle/orchestrator-repo#readme",
+  "devDependencies": {
+    "@types/node": "^25.3.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}
