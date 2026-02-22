@@ -13,8 +13,6 @@
  *   HALO_RECEIPTS_CONTRACT_VERSION=1.0.0
  */
 
-import { verify as cryptoVerify } from "node:crypto";
-
 // ── Contract version ──────────────────────────────────────────────────────────
 
 /** Contract version this orchestrator is pinned to. */
@@ -145,16 +143,14 @@ export async function loadHaloReceiptsContract(): Promise<HaloReceiptsContract> 
 
   const invokeLLMWithHaloRaw = contractExport.invokeLLMWithHalo;
   const haloSignTranscriptRaw = contractExport.haloSignTranscript;
-  const stableStringifyStrictRaw = contractExport.stableStringifyStrict;
-  const sha256HexRaw = contractExport.sha256Hex;
+  const verifyTranscriptReceiptRaw = contractExport.verifyTranscriptReceipt;
 
   // ── Step 2: validate required exports ────────────────────────────────────
 
   const required: [string, unknown][] = [
     ["invokeLLMWithHalo", invokeLLMWithHaloRaw],
     ["haloSignTranscript", haloSignTranscriptRaw],
-    ["stableStringifyStrict", stableStringifyStrictRaw],
-    ["sha256Hex", sha256HexRaw],
+    ["verifyTranscriptReceipt", verifyTranscriptReceiptRaw],
   ];
 
   const found = required.filter(([, v]) => typeof v === "function").map(([k]) => k);
@@ -187,8 +183,10 @@ export async function loadHaloReceiptsContract(): Promise<HaloReceiptsContract> 
   const haloSignTranscriptFn = haloSignTranscriptRaw as (
     transcript: unknown
   ) => Promise<HaloTranscriptReceipt>;
-  const stableStringifyStrictFn = stableStringifyStrictRaw as (value: unknown) => string;
-  const sha256HexFn = sha256HexRaw as (input: string) => string;
+  const verifyTranscriptReceiptFn = verifyTranscriptReceiptRaw as (
+    transcript: unknown,
+    receipt: HaloTranscriptReceipt
+  ) => { ok: boolean; errors?: string[] };
 
   // ── Step 4: build contract implementation ─────────────────────────────────
 
@@ -217,51 +215,7 @@ export async function loadHaloReceiptsContract(): Promise<HaloReceiptsContract> 
     transcript,
     haloReceipt
   ) => {
-    const errors: string[] = [];
-    const receipt = haloReceipt as HaloTranscriptReceipt;
-
-    if (!receipt || typeof receipt !== "object") {
-      return { ok: false, errors: ["haloReceipt is not an object"] };
-    }
-
-    // 1) Hash verification: re-derive transcript_hash using HALO-RECEIPTS
-    //    canonicalisation primitives and compare to the value in the receipt.
-    let computedHash: string;
-    try {
-      computedHash = sha256HexFn(stableStringifyStrictFn(transcript));
-    } catch (err) {
-      return {
-        ok: false,
-        errors: [`Failed to canonicalise transcript: ${(err as Error).message}`],
-      };
-    }
-
-    if (computedHash !== receipt.transcript_hash) {
-      errors.push(
-        `transcript_hash mismatch: computed ${computedHash}, receipt has ${receipt.transcript_hash}`
-      );
-    }
-
-    // 2) Signature verification (only when RECEIPT_VERIFY_KEY is available).
-    //    Verifies the Ed25519 signature over signed_payload using the public key.
-    const verifyKeyPem = process.env.RECEIPT_VERIFY_KEY;
-    if (verifyKeyPem) {
-      try {
-        const sigOk = cryptoVerify(
-          "ed25519",
-          Buffer.from(receipt.signed_payload, "utf8"),
-          verifyKeyPem,
-          Buffer.from(receipt.signature, "base64")
-        );
-        if (!sigOk) {
-          errors.push("Ed25519 signature verification failed");
-        }
-      } catch (err) {
-        errors.push(`Signature verification error: ${(err as Error).message}`);
-      }
-    }
-
-    return errors.length === 0 ? { ok: true } : { ok: false, errors };
+    return verifyTranscriptReceiptFn(transcript, haloReceipt as HaloTranscriptReceipt);
   };
 
   cached = { invokeLLMWithHalo, verifyTranscriptReceipt, contractVersion };

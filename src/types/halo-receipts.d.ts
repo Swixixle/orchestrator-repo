@@ -19,6 +19,11 @@ declare module "halo-receipts" {
     signed_payload: string;
   }
 
+  export interface VerifyTranscriptReceiptResult {
+    ok: boolean;
+    errors?: string[];
+  }
+
   export interface HaloReceiptsRootContract {
     /** Gate 0 LLM wrapper. deps.haloSignTranscript is injected by the caller. */
     invokeLLMWithHalo(
@@ -41,14 +46,14 @@ declare module "halo-receipts" {
     /** Sign a transcript and return a HALO receipt. */
     haloSignTranscript(transcript: unknown): Promise<HaloTranscriptReceipt>;
 
-    /** Deterministic canonical JSON serialisation used for hashing. */
-    stableStringifyStrict(value: unknown): string;
-
-    /** SHA-256 hex digest of the given UTF-8 string. */
-    sha256Hex(input: string): string;
+    /** Verify a HALO transcript receipt (hash + optional signature). */
+    verifyTranscriptReceipt(
+      transcript: unknown,
+      receipt: HaloTranscriptReceipt
+    ): VerifyTranscriptReceiptResult;
 
     /** Contract version string (e.g. "1.0.0"). */
-    version?: string;
+    contractVersion: string;
   }
 
   export const HALO_RECEIPTS_CONTRACT: HaloReceiptsRootContract;
