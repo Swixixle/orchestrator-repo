@@ -3,6 +3,7 @@ import { createHmac, generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import {
   canonicalJson,
   createMasterReceipt,
@@ -15,6 +16,20 @@ import {
 } from "../../src/cli/ingestValet.js";
 
 describe("ingestValet bridge helpers", () => {
+  it("prints error and usage when CLI is run with no arguments", () => {
+    // Build first to ensure dist/cli/ingestValet.js is up to date
+    const build = spawnSync("npm", ["run", "console:build"], { cwd: process.cwd(), shell: true });
+    expect(build.status).toBe(0);
+
+    const result = spawnSync("node", ["dist/cli/ingestValet.js"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(0); // usage exits with 0
+    expect(result.stderr).toContain("Missing required <valet-dist-dir> argument");
+    expect(result.stdout).toContain("Usage: ingestValet");
+    expect(result.stdout).toContain("--quiet");
+  });
   it("parses ingest args with --quiet flag", () => {
     const parsed = parseIngestArgs(["node", "ingestValet.ts", "--quiet", "dist/sample"]);
     expect(parsed.quiet).toBe(true);
