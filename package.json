@@ -19,7 +19,11 @@
     "ui:serve": "node dist/server/uiServer.js",
     "ui:prod": "npm run ui:build && npm run ui:build:server && npm run ui:serve",
     "ui:smoke": "npm run ui:build && npm run ui:build:server && node scripts/ui-smoke.mjs",
-    "ui:preview": "vite preview"
+    "ui:preview": "vite preview",
+    "console:dev": "tsx src/server/haloConsoleServer.ts",
+    "console:build": "tsc --project tsconfig.build.json",
+    "console:start": "node dist/server/haloConsoleServer.js",
+    "console:prod": "npm run console:build && npm run console:start"
   },
   "repository": {
     "type": "git",
@@ -33,13 +37,17 @@
   },
   "homepage": "https://github.com/Swixixle/orchestrator-repo#readme",
   "dependencies": {
+    "express": "^4.21.2",
+    "pg": "^8.13.3",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
   "devDependencies": {
+    "@types/express": "^5.0.0",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
     "@types/node": "^25.3.0",
+    "@types/pg": "^8.11.11",
     "@vitejs/plugin-react": "^5.0.4",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
