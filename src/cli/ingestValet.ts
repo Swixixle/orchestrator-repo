@@ -90,6 +90,27 @@ interface ProtocolReport {
   };
 }
 
+function printUsageAndExit(): never {
+  console.log(`\nUsage: ingestValet [--quiet|-q] <valet-dist-dir>
+
+Options:
+  --quiet, -q    Suppress progress and fail logs (for CI/scripts)
+  --help,  -h    Show this usage message
+
+Arguments:
+  <valet-dist-dir>  Path to Valet output directory (required)
+
+Environment:
+  VALET_RECEIPT_HMAC_KEY   Required for HMAC verification
+  RECEIPT_SIGNING_KEY      Required for Ed25519 checkpoint
+  RECEIPT_VERIFY_KEY       Optional for offline verify
+
+Example:
+  ingestValet --quiet dist/my-valet-run
+`);
+  process.exit(0);
+}
+
 interface IngestArgs {
   inputDir: string;
   quiet: boolean;
@@ -136,6 +157,29 @@ export function sha256Hex(input: string): string {
 
 export function parseIngestArgs(argv: string[]): IngestArgs {
   const args = argv.slice(2).filter((value) => value.trim().length > 0);
+  if (args.includes("--help") || args.includes("-h")) {
+    printUsageAndExit();
+  }
+  function printUsageAndExit(): never {
+    console.log(`\nUsage: ingestValet [--quiet|-q] <valet-dist-dir>
+
+  Options:
+    --quiet, -q    Suppress progress and fail logs (for CI/scripts)
+    --help,  -h    Show this usage message
+
+  Arguments:
+    <valet-dist-dir>  Path to Valet output directory (required)
+
+  Environment:
+    VALET_RECEIPT_HMAC_KEY   Required for HMAC verification
+    RECEIPT_SIGNING_KEY      Required for Ed25519 checkpoint
+    RECEIPT_VERIFY_KEY       Optional for offline verify
+
+  Example:
+    ingestValet --quiet dist/my-valet-run
+  `);
+    process.exit(0);
+  }
   let quiet = false;
   const positionals: string[] = [];
 
@@ -149,7 +193,8 @@ export function parseIngestArgs(argv: string[]): IngestArgs {
 
   const firstPositional = positionals.find((value) => !value.startsWith("-"));
   if (!firstPositional) {
-    throw new Error("Provide a Valet dist directory path (e.g. npm run ingest-valet -- dist/<slug>/)");
+    console.error("[ERROR] Missing required <valet-dist-dir> argument.");
+    printUsageAndExit();
   }
   return { inputDir: resolve(firstPositional), quiet };
 }
@@ -854,6 +899,9 @@ function tryParseJson(input: string): unknown {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    printUsageAndExit();
+  }
   runIngestValet(process.argv)
     .then((ok) => {
       process.exit(ok ? 0 : 1);
