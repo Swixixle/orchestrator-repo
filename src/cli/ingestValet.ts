@@ -102,21 +102,7 @@ interface ProtocolReport {
 
 function printUsageAndExit(): never {
 
-Options:
-  --quiet, -q    Suppress progress and fail logs (for CI/scripts)
-  --help,  -h    Show this usage message
-
-Arguments:
-  <valet-dist-dir>  Path to Valet output directory (required)
-
-Environment:
-  VALET_RECEIPT_HMAC_KEY   Required for HMAC verification
-  RECEIPT_SIGNING_KEY      Required for Ed25519 checkpoint
-  RECEIPT_VERIFY_KEY       Optional for offline verify
-
-Example:
-  ingestValet --quiet dist/my-valet-run
-`);
+  logger.info({ msg: `Usage: ingestValet [--quiet|-q] <valet-dist-dir>\n\nOptions:\n  --quiet, -q    Suppress progress and fail logs (for CI/scripts)\n  --help,  -h    Show this usage message\n\nArguments:\n  <valet-dist-dir>  Path to Valet output directory (required)\n\nEnvironment:\n  VALET_RECEIPT_HMAC_KEY   Required for HMAC verification\n  RECEIPT_SIGNING_KEY      Required for Ed25519 checkpoint\n  RECEIPT_VERIFY_KEY       Optional for offline verify\n\nExample:\n  ingestValet --quiet dist/my-valet-run` });
   process.exit(0);
   logger.info({ msg: "Usage: ingestValet [--quiet|-q] <valet-dist-dir>\n\nOptions:\n  --quiet, -q    Suppress progress and fail logs (for CI/scripts)\n  --help,  -h    Show this usage message\n\nArguments:\n  <valet-dist-dir>  Path to Valet output directory (required)\n\nEnvironment:\n  VALET_RECEIPT_HMAC_KEY   Required for HMAC verification\n  RECEIPT_SIGNING_KEY      Required for Ed25519 checkpoint\n  RECEIPT_VERIFY_KEY       Optional for offline verify\n\nExample:\n  ingestValet --quiet dist/my-valet-run" });
   process.exit(0);
@@ -174,6 +160,7 @@ export function parseIngestArgs(argv: string[]): IngestArgs {
   function printUsageAndExit(): never {
     console.log(`\nUsage: ingestValet [--quiet|-q] <valet-dist-dir>
 
+  /*
   Options:
     --quiet, -q    Suppress progress and fail logs (for CI/scripts)
     --help,  -h    Show this usage message
@@ -188,6 +175,7 @@ export function parseIngestArgs(argv: string[]): IngestArgs {
 
   Example:
     ingestValet --quiet dist/my-valet-run
+  */
   `);
     process.exit(0);
   }

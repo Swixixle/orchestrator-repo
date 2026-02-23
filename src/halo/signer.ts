@@ -9,8 +9,13 @@
  * depends only on Node's built-in `crypto` module so the orchestrator can
  * run without an external dependency until the package is published.
  */
+
 import { createHmac, createHash, randomUUID } from "node:crypto";
 
+/**
+ * HALO receipt object shape
+ */
+export interface HaloReceipt {
   /** Unique receipt identifier */
   id: string;
   /** ISO-8601 timestamp of signing */
@@ -25,13 +30,16 @@ import { createHmac, createHash, randomUUID } from "node:crypto";
   schema_version: string;
 }
 
+
 /**
  * Produce a HALO receipt for an upstream LLM response.
  *
  * @param response   Raw text returned by the LLM provider.
  * @param signingKey Hex-encoded 32-byte HMAC secret.  Falls back to the
  *                   `HALO_SIGNING_KEY` environment variable when omitted.
+ * @returns HaloReceipt object
  */
+export function signHaloReceipt(response: string, signingKey?: string): HaloReceipt {
   const key = signingKey ?? process.env.HALO_SIGNING_KEY ?? "test-signing-key-32-bytes-padded!";
   const id = randomUUID();
   const timestamp = new Date().toISOString();
@@ -39,6 +47,5 @@ import { createHmac, createHash, randomUUID } from "node:crypto";
   const payload = `${id}|${timestamp}|${responseHash}`;
   const signature = createHmac("sha256", key).update(payload, "utf8").digest("hex");
   const schema_version = "1.0.0";
-
   return { id, timestamp, responseHash, signature, response, schema_version };
 }
