@@ -125,6 +125,41 @@ npm run demo -- --input-file path/to/prompt.txt
 ```
 
 Anthropic demo path:
+Gemini demo path:
+### Artifact Output (Gemini Console Run)
+
+A Console/API run writes artifacts under:
+
+- `out/console/<run_id>.console_artifact.json`
+- `out/run_index.json`
+- `out/verify_report.md`
+
+No standard CLI artifacts (`artifact.json`, `receipt.json`, `report.md`) are produced during Console-only runs.
+## Output Layout
+
+**Console/API runs**
+- Write artifacts to `out/console/<run_id>.console_artifact.json`
+- Write `out/run_index.json`
+- Write `out/verify_report.md`
+
+**CLI runs**
+- Write artifacts directly under `out/`
+  - e.g., `out/artifact.json`
+  - `out/receipt.json`
+  - `out/report.md`
+
+### Determinism & Verification
+
+All runs produce structured artifacts suitable for verification.
+Console/API output is written under `out/console/`.
+CLI output (when used) writes directly under `out/`.
+Each run generates a verification report (`verify_report.md`).
+```sh
+GEMINI_API_KEY=...
+npm run demo -- --provider gemini --model gemini-2.5-flash --prompt "Explain what causes ocean tides."
+```
+
+> Note: `gemini-2.5-flash` is the canonical Gemini model used in this repo's verified Console/API smoke test.
 
 ```sh
 ANTHROPIC_API_KEY=... npm run demo -- --provider anthropic --model claude-3-5-sonnet-20241022 --prompt "Explain what causes ocean tides."
@@ -295,7 +330,36 @@ curl -sS -X POST "http://127.0.0.1:${PORT:-8080}/api/run" \
   -H "content-type: application/json" \
   -d '{
     "provider": "gemini",
-    "model": "gemini-1.5-flash",
+    "model": "gemini-2.5-flash",
+    ---
+    ## Multi-Model Tri-Sensor Mode (Optional)
+
+    A **tri-sensor** run executes a single job against multiple provider/model pairs (typically 3) using the same prompt/input, producing:
+
+    - per-model artifacts (one artifact set per sensor)
+    - a comparison summary (derived)
+    - persisted performance stats in `stats/model_runs.jsonl`
+
+    ### CLI usage
+    ```sh
+    npm run demo -- \
+      --tri \
+      --sensor "gemini:gemini-2.5-flash" \
+      --sensor "openai:gpt-4.1-mini" \
+      --sensor "anthropic:claude-3-5-sonnet-20241022"
+    ```
+
+    ### Stats stored per run
+    Each sensor run appends a JSONL record with:
+
+    - `timestamp`, `provider`, `model`, `job_id`
+    - `success`, `error_code` / `error_category`
+    - `latency_ms`, `tokens_in`, `tokens_out`
+    - `verify_pass`, `leak_scan_pass`
+    - `artifact_path`
+
+    ### Presets
+    Team defaults can be defined in `config/sensors.json` and overridden via CLI `--sensor` flags.
     "prompt": "In 3 bullets, explain what causes ocean tides."
   }'
 ```

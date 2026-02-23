@@ -87,19 +87,46 @@ The existing `test:e2e` suite is OpenAI-oriented. Anthropic live E2E is not yet 
 
 ## Gemini (implemented)
 
+
 ### Demo
 
 ```sh
-GEMINI_API_KEY=... \
-npm run demo -- --provider gemini --model gemini-1.5-flash --prompt "Explain what causes ocean tides."
+GEMINI_API_KEY=...
+npm run demo -- --provider gemini --model gemini-2.5-flash --prompt "Explain what causes ocean tides."
 ```
 
 Input-file form:
 
 ```sh
-GEMINI_API_KEY=... \
-npm run demo -- --provider gemini --model gemini-1.5-flash --input-file prompts/example.txt
+GEMINI_API_KEY=...
+npm run demo -- --provider gemini --model gemini-2.5-flash --input-file prompts/example.txt
 ```
+
+### Canonical Gemini Run
+```sh
+GEMINI_API_KEY=...
+npm run demo -- --provider gemini --model gemini-2.5-flash --prompt "Explain what causes ocean tides."
+```
+
+---
+## Multi-Model Tri-Sensor Mode (Optional)
+
+A **tri-sensor** run executes one job across multiple provider/model pairs (typically 3), producing per-model artifacts, a derived comparison summary, and persisted performance stats.
+
+- Stats append to: `stats/model_runs.jsonl` (JSON Lines)
+- Presets live in: `config/sensors.json`
+
+### CLI usage
+```sh
+npm run demo -- \
+  --tri \
+  --sensor "gemini:gemini-2.5-flash" \
+  --sensor "openai:gpt-4.1-mini" \
+  --sensor "anthropic:claude-3-5-sonnet-20241022"
+```
+
+### Stats stored per run
+`timestamp`, `provider`, `model`, `job_id`, `success`, `error_code`/`error_category`, `latency_ms`, `tokens_in`, `tokens_out`, `verify_pass`, `leak_scan_pass`, `artifact_path`
 
 ## Common failure modes
 
