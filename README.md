@@ -1,46 +1,85 @@
 # halo-orchestrator
 
-Cross-system integration harness for the HALO receipt pipeline.
+> **AI orchestration layer integrating with HALO-RECEIPTS for verified, auditable command execution.**
 
-This repo is the **orchestrator** layer that wires:
+`halo-orchestrator` is the cross-system integration harness that connects a live LLM call to tamper-evident receipt generation, epistemic claim tagging, and offline verification — all in a single auditable pipeline. Every AI response is cryptographically signed and independently verifiable, providing a full provenance chain for governance and audit.
+
+---
+
+## Architecture
 
 ```
-invokeLLM → HALO sign → ELI tag → semantic validate
+┌──────────────────────────────────────────────────────────────────────────┐
+│                          halo-orchestrator                               │
+│                                                                          │
+│  prompt ──► invokeLLM ──► HALO sign ──► ELI tag ──► semantic validate   │
+│                │                │           │               │            │
+│           LLM response    receipt.json   ledger.json    validation       │
+│                                                                          │
+│  Offline: verifyHaloReceipt ──► transcript hash check (+ Ed25519 sig)   │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-It is intentionally separate from HALO-RECEIPTS to keep the forensic core
-deterministic and free of live-network calls, costs, and model nondeterminism.
+**Key components:**
+
+| Layer | Role |
+|---|---|
+| **HALO adapter** | Wraps `halo-receipts` to produce a tamper-evident, HMAC/Ed25519-signed receipt for every LLM response |
+| **ELI tagger** | Labels each response claim with an epistemic type (`FACT`, `INFERENCE`, `CLAIM`) and span references |
+| **Semantic validator** | Checks that the ELI ledger meets structural and discipline constraints |
+| **CLI** | `npm run demo` (run pipeline) · `npm run verify` (offline verify artifact) |
+| **Console server** | REST API + optional Evidence Inspector UI for provenance-first review |
+
+**This repo is intentionally separate from [HALO-RECEIPTS](https://github.com/Swixixle/HALO-RECEIPTS)** to keep the forensic core deterministic and free of live-network calls. HALO-RECEIPTS handles signing primitives; this repo handles end-to-end orchestration.
+
+---
+
+## Quick Start
+
+```sh
+./scripts/setup.sh
+```
+
+This single command installs dependencies, installs/builds the pinned `halo-receipts` package, runs deterministic unit tests, runs the UI smoke check, and validates sample artifacts.
+
+**Run the full pipeline against a live LLM:**
+
+```sh
+OPENAI_API_KEY=sk-... npm run demo -- --prompt "Explain what causes ocean tides."
+```
+
+**Verify a previously generated artifact (no network required):**
+
+```sh
+npm run verify -- --artifact out/artifact.json
+```
+
+**Run unit tests (no API key needed):**
+
+```sh
+npm test
+```
+
+Runbooks:
+
+- `docs/onboarding.md` — Zero → Verified in ~30 minutes
+- `docs/providers.md` — OpenAI / Anthropic / Gemini status and commands
+- `docs/evidence-inspector-production.md` — Production hosting guide
 
 ---
 
 ## Why a separate repo?
 
 **HALO-RECEIPTS** stays as a "forensic core":
-- ✅ deterministic unit + golden + offline verification tests
-- ✅ mocked upstream responses for Gate 0 hashing/signing tests
-- ❌ no live LLM calls
+- ✅ Deterministic unit + golden + offline verification tests
+- ✅ Mocked upstream responses for Gate 0 hashing/signing tests
+- ❌ No live LLM calls
 
 **This repo** handles cross-system integration:
-- ✅ the single E2E test that hits a real model
-- ✅ wires HALO receipt generation + ELI tagging + semantic validation
-- ✅ becomes the seed of the proxy product harness
-- ✅ runs locally on-demand; in CI only when explicitly enabled
-
----
-
-## Quick Start (Recommended)
-
-```sh
-./scripts/setup.sh
-```
-
-This installs dependencies, installs/builds pinned `halo-receipts`, runs deterministic tests, runs UI smoke, and validates sample verification.
-
-Runbooks:
-
-- `docs/onboarding.md` (Zero → Verified in ~30 minutes)
-- `docs/providers.md` (OpenAI / Anthropic / Gemini status and commands)
-- `docs/evidence-inspector-production.md` (production hosting)
+- ✅ The single E2E test that hits a real model
+- ✅ Wires HALO receipt generation + ELI tagging + semantic validation
+- ✅ Becomes the seed of the proxy product harness
+- ✅ Runs locally on-demand; in CI only when explicitly enabled
 
 ---
 
