@@ -33,7 +33,7 @@
     "type": "git",
     "url": "git+https://github.com/Swixixle/orchestrator-repo.git"
   },
-  "keywords": [],
+  "keywords": ["orchestration", "ai", "typescript", "halo-receipts", "cli", "governance", "audit"],
   "author": "",
   "license": "ISC",
   "bugs": {
